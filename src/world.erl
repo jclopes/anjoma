@@ -22,18 +22,17 @@ start_link() ->
 stop() -> gen_server:call(?MODULE, stop).
 
 set_load_time(LoadTime) ->
-    io:format("~p~n", ["PUTAIN"]),
     gen_server:cast(?MODULE, {load_time, LoadTime})
 .
 
-%%%
+%%% %%% %%%
+
 init(no_args) ->
     {ok, #game_settings{}}
 .
 
 handle_cast({load_time, LoadTime}, S) ->
     NewS = S#game_settings{load_time = LoadTime},
-    io:format("~p~n", [NewS]),
     {noreply, NewS}
 .
 
