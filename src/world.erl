@@ -4,16 +4,41 @@
 
 -export([
     init/1,
+    handle_info/2,
     handle_cast/2,
+    handle_call/3,
+    code_change/3,
     terminate/2
 ]).
 
 -export([
     start_link/0,
     stop/0,
-    set_load_time/1
+    set_variable/2,
+    update_map/2
 ]).
--record(game_settings, {load_time, turn_time, lines, columns}).
+
+-record(game_settings, {
+    loadtime,
+    turntime,
+    rows,
+    cols,
+    turns,
+    viewradius2,
+    attackradius2,
+    spawnradius2,
+    player_seed
+}).
+
+-record(state, {
+    settings,
+    dynamic_map,
+    static_map,
+    ants,
+    active_turn,
+    no_players,
+    score
+}).
 
 start_link() ->
     gen_server:start_link({local, ?MODULE}, ?MODULE, no_args, [])
@@ -21,25 +46,127 @@ start_link() ->
 
 stop() -> gen_server:call(?MODULE, stop).
 
-set_load_time(LoadTime) ->
-    gen_server:cast(?MODULE, {load_time, LoadTime})
+set_variable(Key, Val) ->
+    gen_server:cast(?MODULE, {set_variable, Key, Val})
+.
+
+update_map(Elem, Args) ->
+    gen_server:cast(?MODULE, {update_map, Elem, Args})
 .
 
 %%% %%% %%%
 
 init(no_args) ->
-    {ok, #game_settings{}}
+    DynMap = ets:new(dynamic_map, []),
+    StaMap = ets:new(static_map, []),
+    State = #state{dynamic_map = DynMap, static_map = StaMap},
+    {ok, State}
 .
 
-handle_cast({load_time, LoadTime}, S) ->
-    NewS = S#game_settings{load_time = LoadTime},
+handle_info(_, S) ->
+    {noreply, S}
+.
+
+handle_cast({update_map, food, [R, C]}, S) ->
+    Map = S#state.dynamic_map,
+    Settings = S#state.settings,
+    NoCols = Settings#game_settings.cols,
+    NewMap = ets:insert(Map, {R*NoCols + C, food}),
+    NewS = S#state{dynamic_map = NewMap},
+    {noreply, NewS}
+;
+handle_cast({update_map, water, [R, C]}, S) ->
+    Map = S#state.static_map,
+    Settings = S#state.settings,
+    NoCols = Settings#game_settings.cols,
+    NewMap = ets:insert(Map, {R*NoCols + C, water}),
+    NewS = S#state{static_map = NewMap},
+    {noreply, NewS}
+;
+handle_cast({update_map, ant, [R, C, O]}, S) ->
+    Map = S#state.dynamic_map,
+    Settings = S#state.settings,
+    NoCols = Settings#game_settings.cols,
+    NewMap = ets:insert(Map, {R*NoCols + C, O}),
+    NewS = S#state{dynamic_map = NewMap},
+    {noreply, NewS}
+;
+handle_cast({update_map, dead_ant, [R, C, O]}, S) ->
+    Map = S#state.dynamic_map,
+    Settings = S#state.settings,
+    NoCols = Settings#game_settings.cols,
+    NewMap = ets:insert(Map, {R*NoCols + C, O}),
+    NewS = S#state{dynamic_map = NewMap},
+    {noreply, NewS}
+;
+handle_cast({set_variable, "turn", Val}, S) ->
+    NewS = S#state{active_turn = Val},
+    {noreply, NewS}
+;
+handle_cast({set_variable, "players", Val}, S) ->
+    NewS = S#state{no_players = Val},
+    {noreply, NewS}
+;
+handle_cast({set_variable, "score", Val}, S) ->
+    NewS = S#state{score = Val},
+    {noreply, NewS}
+;
+
+handle_cast({set_variable, "loadtime", Val}, S) ->
+    NewSettings = (S#state.settings)#game_settings{loadtime = Val},
+    NewS = S#state{settings = NewSettings},
+    {noreply, NewS}
+;
+handle_cast({set_variable, "turntime", Val}, S) ->
+    NewSettings = (S#state.settings)#game_settings{turntime = Val},
+    NewS = S#state{settings = NewSettings},
+    {noreply, NewS}
+;
+handle_cast({set_variable, "rows", Val}, S) ->
+    NewSettings = (S#state.settings)#game_settings{rows = Val},
+    NewS = S#state{settings = NewSettings},
+    {noreply, NewS}
+;
+handle_cast({set_variable, "cols", Val}, S) ->
+    NewSettings = (S#state.settings)#game_settings{cols = Val},
+    NewS = S#state{settings = NewSettings},
+    {noreply, NewS}
+;
+handle_cast({set_variable, "turns", Val}, S) ->
+    NewSettings = (S#state.settings)#game_settings{turns = Val},
+    NewS = S#state{settings = NewSettings},
+    {noreply, NewS}
+;
+handle_cast({set_variable, "viewradius2", Val}, S) ->
+    NewSettings = (S#state.settings)#game_settings{viewradius2 = Val},
+    NewS = S#state{settings = NewSettings},
+    {noreply, NewS}
+;
+handle_cast({set_variable, "attackradius2", Val}, S) ->
+    NewSettings = (S#state.settings)#game_settings{attackradius2 = Val},
+    NewS = S#state{settings = NewSettings},
+    {noreply, NewS}
+;
+handle_cast({set_variable, "spawnradius2", Val}, S) ->
+    NewSettings = (S#state.settings)#game_settings{spawnradius2 = Val},
+    NewS = S#state{settings = NewSettings},
+    {noreply, NewS}
+;
+handle_cast({set_variable, "player_seed", Val}, S) ->
+    NewSettings = (S#state.settings)#game_settings{player_seed = Val},
+    NewS = S#state{settings = NewSettings},
     {noreply, NewS}
 .
+
 
 handle_call(stop, _, S) ->
     {stop, normal, S}
 .
 
-terminate(Reason, S) ->
+terminate(_Reason, _S) ->
     ok
+.
+
+code_change(_OldVsn, S, _Extra) ->
+    {ok, S}
 .
