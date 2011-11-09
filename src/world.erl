@@ -61,8 +61,8 @@ go() ->
     nop
 .
 
-query_ants(Timeout) ->
-    gen_server:call(?MODULE, query_ants, Timeout)
+query_ants() ->
+    gen_server:call(?MODULE, query_ants)
 .
 
 dump_log() ->
@@ -116,21 +116,30 @@ handle_cast({update_map, ant, [R, C, 0]}, S) ->
     end,
     NState = S#state{ ants = NAntsList },
     DMap = S#state.dynamic_map,
-    ets:insert(DMap, {Pos, 0, S#state.active_turn}),
+    ets:insert(DMap, {Pos, ant, 0, S#state.active_turn}),
     {noreply, NState}
 ;
 handle_cast({update_map, ant, [R, C, O]}, S) ->
     Map = S#state.dynamic_map,
     Settings = S#state.settings,
     NoCols = Settings#game_settings.cols,
-    ets:insert(Map, {R*NoCols + C, O, S#state.active_turn}),
+    ets:insert(Map, {R*NoCols + C, ant, O, S#state.active_turn}),
     {noreply, S}
 ;
 handle_cast({update_map, dead_ant, [R, C, O]}, S) ->
     Map = S#state.dynamic_map,
+    NoCols = (S#state.settings)#game_settings.cols,
+%    ets:insert(Map, {R*NoCols + C, ant, O, S#state.active_turn}),
+
+    % TODO: if our ant dies kill ant process
+
+    {noreply, S}
+;
+handle_cast({update_map, hill, [R, C, O]}, S) ->
+    Map = S#state.dynamic_map,
     Settings = S#state.settings,
     NoCols = Settings#game_settings.cols,
-    ets:insert(Map, {R*NoCols + C, O, S#state.active_turn}),
+    ets:insert(Map, {R*NoCols + C, hill, O, S#state.active_turn}),
     {noreply, S}
 ;
 handle_cast({set_variable, "turn", Val}, S) ->
@@ -145,7 +154,6 @@ handle_cast({set_variable, "score", Val}, S) ->
     NewS = S#state{score = Val},
     {noreply, NewS}
 ;
-
 handle_cast({set_variable, "loadtime", Val}, S) ->
     NewSettings = (S#state.settings)#game_settings{loadtime = Val},
     NewS = S#state{settings = NewSettings},

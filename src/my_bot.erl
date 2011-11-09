@@ -50,6 +50,13 @@ parse_line(Line) ->
                 list_to_integer(O)
             ])
         ;
+        ["h", R, C, O] -> % ants
+            world:update_map(hill, [
+                list_to_integer(R),
+                list_to_integer(C),
+                list_to_integer(O)
+            ])
+        ;
         ["f", R, C] -> % food
             world:update_map(food, [list_to_integer(R), list_to_integer(C)])
         ;
@@ -57,7 +64,7 @@ parse_line(Line) ->
             world:update_map(water, [list_to_integer(R), list_to_integer(C)])
         ;
         ["go"] ->
-            world:query_ants(3000),
+            world:query_ants(),
             io:format("go~n")
         ;
         [Setting, Value] ->
