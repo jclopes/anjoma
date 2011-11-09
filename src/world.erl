@@ -15,7 +15,9 @@
     start_link/0,
     stop/0,
     set_variable/2,
-    update_map/2
+    update_map/2,
+    query_ants/1,
+    dump_log/0
 ]).
 
 -record(game_settings, {
@@ -54,12 +56,31 @@ update_map(Elem, Args) ->
     gen_server:cast(?MODULE, {update_map, Elem, Args})
 .
 
+go() ->
+%    gen_server:call(?MODULE, go)
+    nop
+.
+
+query_ants(Timeout) ->
+    gen_server:call(?MODULE, query_ants, Timeout)
+.
+
+dump_log() ->
+    gen_server:call(?MODULE, dump_log)
+.
+
 %%% %%% %%%
 
 init(no_args) ->
-    DynMap = ets:new(dynamic_map, []),
-    StaMap = ets:new(static_map, []),
-    State = #state{dynamic_map = DynMap, static_map = StaMap},
+    DynamicMap = ets:new(dynamic_map, []),
+    StaticMap = ets:new(static_map, []),
+    error_logger:info_msg("~p~n~p~n", [DynamicMap, StaticMap]),
+    State = #state{
+        settings = #game_settings{},
+        dynamic_map = DynamicMap,
+        static_map = StaticMap,
+        ants = []
+    },
     {ok, State}
 .
 
@@ -71,33 +92,46 @@ handle_cast({update_map, food, [R, C]}, S) ->
     Map = S#state.dynamic_map,
     Settings = S#state.settings,
     NoCols = Settings#game_settings.cols,
-    NewMap = ets:insert(Map, {R*NoCols + C, food}),
-    NewS = S#state{dynamic_map = NewMap},
-    {noreply, NewS}
+    ets:insert(Map, {R*NoCols + C, food, S#state.active_turn}),
+    {noreply, S}
 ;
 handle_cast({update_map, water, [R, C]}, S) ->
     Map = S#state.static_map,
     Settings = S#state.settings,
     NoCols = Settings#game_settings.cols,
-    NewMap = ets:insert(Map, {R*NoCols + C, water}),
-    NewS = S#state{static_map = NewMap},
-    {noreply, NewS}
+    ets:insert(Map, {R*NoCols + C, water, S#state.active_turn}),
+    {noreply, S}
+;
+handle_cast({update_map, ant, [R, C, 0]}, S) ->
+    AntsList = S#state.ants,
+    NoCols = (S#state.settings)#game_settings.cols,
+    Pos = R*NoCols + C,
+    NAntsList = case proplists:is_defined(Pos, S#state.ants) of
+        false ->
+            {ok, AntPid} = ant:start_link(S#state.static_map),
+            [{Pos, AntPid, R, C} | AntsList]
+        ;
+        true ->
+            AntsList
+    end,
+    NState = S#state{ ants = NAntsList },
+    DMap = S#state.dynamic_map,
+    ets:insert(DMap, {Pos, 0, S#state.active_turn}),
+    {noreply, NState}
 ;
 handle_cast({update_map, ant, [R, C, O]}, S) ->
     Map = S#state.dynamic_map,
     Settings = S#state.settings,
     NoCols = Settings#game_settings.cols,
-    NewMap = ets:insert(Map, {R*NoCols + C, O}),
-    NewS = S#state{dynamic_map = NewMap},
-    {noreply, NewS}
+    ets:insert(Map, {R*NoCols + C, O, S#state.active_turn}),
+    {noreply, S}
 ;
 handle_cast({update_map, dead_ant, [R, C, O]}, S) ->
     Map = S#state.dynamic_map,
     Settings = S#state.settings,
     NoCols = Settings#game_settings.cols,
-    NewMap = ets:insert(Map, {R*NoCols + C, O}),
-    NewS = S#state{dynamic_map = NewMap},
-    {noreply, NewS}
+    ets:insert(Map, {R*NoCols + C, O, S#state.active_turn}),
+    {noreply, S}
 ;
 handle_cast({set_variable, "turn", Val}, S) ->
     NewS = S#state{active_turn = Val},
@@ -158,7 +192,26 @@ handle_cast({set_variable, "player_seed", Val}, S) ->
     {noreply, NewS}
 .
 
-
+handle_call(go, _, S) ->
+    {ok, NewS} = query_ants((S#state.settings)#game_settings.turntime),
+    {reply, ok, NewS}
+;
+handle_call(query_ants, _, S) ->
+    Fun = fun(AntPid, Row, Col) ->
+        ant:get_decision(AntPid, {Row, Col}, 1)
+    end,
+    [
+        Fun(APid, R, C)
+    ||
+        {Pos, APid, R, C} <- S#state.ants
+    ],
+    {reply, ok, S}
+;
+handle_call(dump_log, _, S) ->
+    Dump = ets:tab2list(S#state.static_map),
+    error_logger:info_msg("Static table:~n~p~n~n", [Dump]),
+    {reply, ok, S}
+;
 handle_call(stop, _, S) ->
     {stop, normal, S}
 .
