@@ -12,9 +12,9 @@
 ]).
 
 -export([
-    start_link/1,
+    start_link/2,
     stop/1,
-    get_decision/3
+    get_decision/4
 ]).
 
 -record(state, {
@@ -24,14 +24,14 @@
     static_map
 }).
 
-start_link(StaticMap) ->
-    gen_server:start_link(?MODULE, [StaticMap], [])
+start_link(StaticMap, DynamicMap) ->
+    gen_server:start_link(?MODULE, [StaticMap, DynamicMap], [])
 .
 
 stop(Pid) -> gen_server:call(Pid, stop).
 
-get_decision(Pid, {R, C}, Turn) ->
-    gen_server:cast(Pid, {get_decision, {R, C}, Turn})
+get_decision(Pid, From, {R, C}, Turn) ->
+    gen_server:cast(Pid, {get_decision, From, {R, C}, Turn})
 .
 
 random_direction() ->
@@ -42,8 +42,8 @@ random_direction() ->
 
 %%% %%% %%%
 
-init(StaticMap) ->
-    State = #state{static_map = StaticMap},
+init([StaticMap, DynamicMap]) ->
+    State = #state{dynamic_map = DynamicMap, static_map = StaticMap},
     {ok, State}
 .
 
@@ -51,10 +51,9 @@ handle_info(_, S) ->
     {noreply, S}
 .
 
-handle_cast({get_decision, {R, C}, Turn}, S) ->
-    random_direction(),
-    io:format("o ~w ~w ~s~n", [R, C, random_direction()]),
-    % should return current position + direction + turn
+handle_cast({get_decision, From, {R, C}, Turn}, S) ->
+    D = random_direction(),
+    From ! {move, {R, C, D}, Turn},
     {noreply, S}
 .
 

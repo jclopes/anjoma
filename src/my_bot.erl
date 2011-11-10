@@ -36,14 +36,17 @@ parse_line(Line) ->
         ["ready"] ->
             io:format("go~n")
         ;
-        ["d", R, C, O] -> % dead ants
+        ["d", R, C, "0"] -> % our dead ants - ignore others
             world:update_map(dead_ant, [
                 list_to_integer(R),
                 list_to_integer(C),
-                list_to_integer(O)
+                0
             ])
         ;
         ["a", R, C, O] -> % ants
+            
+            error_logger:info_msg("input: a ~s ~s ~s", [R,C,O]),
+            
             world:update_map(ant, [
                 list_to_integer(R),
                 list_to_integer(C),
@@ -64,8 +67,7 @@ parse_line(Line) ->
             world:update_map(water, [list_to_integer(R), list_to_integer(C)])
         ;
         ["go"] ->
-            world:query_ants(),
-            io:format("go~n")
+            world:go()
         ;
         [Setting, Value] ->
             world:set_variable(Setting, list_to_integer(Value))

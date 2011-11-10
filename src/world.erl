@@ -16,7 +16,8 @@
     stop/0,
     set_variable/2,
     update_map/2,
-    query_ants/1,
+    go/0,
+    finish_turn/0,
     dump_log/0
 ]).
 
@@ -49,6 +50,7 @@ start_link() ->
 stop() -> gen_server:call(?MODULE, stop).
 
 set_variable(Key, Val) ->
+    error_logger:info_msg("~p = ~p~n", [Key, Val]),
     gen_server:cast(?MODULE, {set_variable, Key, Val})
 .
 
@@ -57,12 +59,7 @@ update_map(Elem, Args) ->
 .
 
 go() ->
-%    gen_server:call(?MODULE, go)
-    nop
-.
-
-query_ants() ->
-    gen_server:call(?MODULE, query_ants)
+    gen_server:call(?MODULE, go)
 .
 
 dump_log() ->
@@ -84,7 +81,16 @@ init(no_args) ->
     {ok, State}
 .
 
-handle_info(_, S) ->
+handle_info(finish_turn, S) ->
+    io:format("go~n"),
+    {noreply, S#state{active_turn = infinity}}
+;
+handle_info({move, {R, C, D}, Turn}, S) ->
+    io:format("o ~p ~p ~s~n", [R, C, D]),
+    {noreply, S}
+;
+handle_info(Msg, S) ->
+    error_logger:info_msg("Info: ~p~n", [Msg]),
     {noreply, S}
 .
 
@@ -108,7 +114,7 @@ handle_cast({update_map, ant, [R, C, 0]}, S) ->
     Pos = R*NoCols + C,
     NAntsList = case proplists:is_defined(Pos, S#state.ants) of
         false ->
-            {ok, AntPid} = ant:start_link(S#state.static_map),
+            {ok, AntPid} = ant:start_link(S#state.static_map, S#state.dynamic_map),
             [{Pos, AntPid, R, C} | AntsList]
         ;
         true ->
@@ -126,7 +132,7 @@ handle_cast({update_map, ant, [R, C, O]}, S) ->
     ets:insert(Map, {R*NoCols + C, ant, O, S#state.active_turn}),
     {noreply, S}
 ;
-handle_cast({update_map, dead_ant, [R, C, O]}, S) ->
+handle_cast({update_map, dead_ant, [R, C, 0]}, S) ->
     Map = S#state.dynamic_map,
     NoCols = (S#state.settings)#game_settings.cols,
 %    ets:insert(Map, {R*NoCols + C, ant, O, S#state.active_turn}),
@@ -160,7 +166,8 @@ handle_cast({set_variable, "loadtime", Val}, S) ->
     {noreply, NewS}
 ;
 handle_cast({set_variable, "turntime", Val}, S) ->
-    NewSettings = (S#state.settings)#game_settings{turntime = Val},
+    % take out 5ms to be sure that we don't timeout
+    NewSettings = (S#state.settings)#game_settings{turntime = Val - 20},
     NewS = S#state{settings = NewSettings},
     {noreply, NewS}
 ;
@@ -201,12 +208,14 @@ handle_cast({set_variable, "player_seed", Val}, S) ->
 .
 
 handle_call(go, _, S) ->
-    {ok, NewS} = query_ants((S#state.settings)#game_settings.turntime),
-    {reply, ok, NewS}
-;
-handle_call(query_ants, _, S) ->
+    Timeout = (S#state.settings)#game_settings.turntime,
+    {ok, Tref} = timer:send_after(Timeout, finish_turn),
+    SMap = S#state.static_map,
+    DMap = S#state.dynamic_map,
+    ATurn = S#state.active_turn,
+    
     Fun = fun(AntPid, Row, Col) ->
-        ant:get_decision(AntPid, {Row, Col}, 1)
+        ant:get_decision(AntPid, self(), {Row, Col}, ATurn)
     end,
     [
         Fun(APid, R, C)
