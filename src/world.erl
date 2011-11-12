@@ -89,6 +89,7 @@ handle_info(finish_turn, S) ->
     io:format("go~n"),
     AntsPool = S#state.ants_pool,
     AntsAlive = S#state.ants_alive,
+    error_logger:info_msg("World: Pool=~p Alive=~p", [AntsPool, AntsAlive]),
     F = fun({_Pos, AntPid, _R, _C}) ->
         ant:stop(AntPid)
     end,
@@ -102,17 +103,25 @@ handle_info(finish_turn, S) ->
 % move, From, Origin, Destiny, Direction, Turn
 handle_info({move, From, {R, C}, {DR, DC}, D, Turn}, S) ->
     ActiveTurn = S#state.active_turn,
-    case Turn of
+    AntsAlive = S#state.ants_alive,
+    NoCols = (S#state.settings)#game_settings.cols,
+    Pos = R*NoCols + C,
+    NPos = DR*NoCols + DC,
+    NAntsAlive = case Turn of
         ActiveTurn ->
+            error_logger:info_msg("World: move ~p ~p ~s", [R,C,D]),
             % TODO: check movement generates colision
-            io:format("o ~p ~p ~s~n", [R, C, D])
+            io:format("o ~p ~p ~s~n", [R, C, D]),
+            [{NPos, From, DR, DC} | proplists:delete(Pos, AntsAlive)]
         ;
-        _ -> nop
+        _ ->
+            error_logger:info_msg("World: move out of turn: AT=~s , MT=~s", [ActiveTurn, Turn]),
+            AntsAlive
     end,
-    {noreply, S}
+    {noreply, S#state{ants_alive = NAntsAlive}}
 ;
 handle_info(Msg, S) ->
-    error_logger:info_msg("Info: ~p~n", [Msg]),
+    error_logger:debug_info("World: not implemented ~p~n", [Msg]),
     {noreply, S}
 .
 
@@ -143,7 +152,7 @@ handle_cast({update_map, ant, [R, C, 0]}, S) ->
             {AntsPool, [{Pos, AntPid, R, C} | AntsAlive]}
         ;
         true ->
-            {proplists:delete(Pos, AntsPool), [proplists:property(Pos, AntsPool) | AntsAlive]}
+            {proplists:delete(Pos, AntsPool), [proplists:lookup(Pos, AntsPool) | AntsAlive]}
     end,
     NState = S#state{ants_pool = NAntsPool, ants_alive = NAntsAlive},
     DMap = S#state.dynamic_map,

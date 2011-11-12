@@ -54,6 +54,8 @@ random_direction(R, C) ->
 %%% %%% %%%
 
 init([StaticMap, DynamicMap]) ->
+    {R1,R2,R3} = now(),
+    random:seed(R1,R2,R3),
     State = #state{dynamic_map = DynamicMap, static_map = StaticMap},
     {ok, State}
 .
