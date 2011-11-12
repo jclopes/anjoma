@@ -112,9 +112,9 @@ handle_info({move, From, {R, C}, {DR, DC}, D, Turn}, S) ->
     ActiveTurn = S#state.active_turn,
     AntsAlive = S#state.ants_alive,
     Movements = S#state.movements,
-    NoCols = (S#state.settings)#game_settings.cols,
-    Pos = R*NoCols + C,
-    NPos = DR*NoCols + DC,
+    MaxCol = (S#state.settings)#game_settings.cols,
+    Pos = R*MaxCol + C,
+    NPos = DR*MaxCol + DC,
     {NAntsAlive, NMovements} = case Turn of
         ActiveTurn ->
             error_logger:info_msg("World: move ~p ~p ~s", [R,C,D]),
@@ -145,16 +145,14 @@ handle_info(Msg, S) ->
 
 handle_cast({update_map, food, [R, C]}, S) ->
     Map = S#state.dynamic_map,
-    Settings = S#state.settings,
-    NoCols = Settings#game_settings.cols,
-    ets:insert(Map, {R*NoCols + C, food, S#state.active_turn}),
+    MaxCol = (S#state.settings)#game_settings.cols,
+    ets:insert(Map, {R*MaxCol + C, food, S#state.active_turn}),
     {noreply, S}
 ;
 handle_cast({update_map, water, [R, C]}, S) ->
     Map = S#state.static_map,
-    Settings = S#state.settings,
-    NoCols = Settings#game_settings.cols,
-    ets:insert(Map, {R*NoCols + C, water, S#state.active_turn}),
+    MaxCol = (S#state.settings)#game_settings.cols,
+    ets:insert(Map, {R*MaxCol + C, water, S#state.active_turn}),
     {noreply, S}
 ;
 handle_cast({update_map, ant, [R, C, 0]}, S) ->
@@ -162,11 +160,17 @@ handle_cast({update_map, ant, [R, C, 0]}, S) ->
     % else spawn a new ant
     AntsPool = S#state.ants_pool,
     AntsAlive = S#state.ants_alive,
-    NoCols = (S#state.settings)#game_settings.cols,
-    Pos = R*NoCols + C,
+    MaxRow = (S#state.settings)#game_settings.rows,
+    MaxCol = (S#state.settings)#game_settings.cols,
+    Pos = R*MaxCol + C,
     {NAntsPool, NAntsAlive} = case proplists:is_defined(Pos, AntsPool) of
         false ->
-            {ok, AntPid} = ant:start_link(S#state.static_map, S#state.dynamic_map),
+            {ok, AntPid} = ant:start_link(
+                S#state.static_map,
+                S#state.dynamic_map,
+                MaxRow,
+                MaxCol
+            ),
             {AntsPool, [{Pos, AntPid, R, C} | AntsAlive]}
         ;
         true ->
@@ -180,14 +184,14 @@ handle_cast({update_map, ant, [R, C, 0]}, S) ->
 handle_cast({update_map, ant, [R, C, O]}, S) ->
     Map = S#state.dynamic_map,
     Settings = S#state.settings,
-    NoCols = Settings#game_settings.cols,
-    ets:insert(Map, {R*NoCols + C, ant, O, S#state.active_turn}),
+    MaxCol = Settings#game_settings.cols,
+    ets:insert(Map, {R*MaxCol + C, ant, O, S#state.active_turn}),
     {noreply, S}
 ;
 handle_cast({update_map, dead_ant, [R, C, 0]}, S) ->
     Map = S#state.dynamic_map,
-    NoCols = (S#state.settings)#game_settings.cols,
-%    ets:insert(Map, {R*NoCols + C, ant, O, S#state.active_turn}),
+    MaxCol = (S#state.settings)#game_settings.cols,
+%    ets:insert(Map, {R*MaxCol + C, ant, O, S#state.active_turn}),
 
     % TODO: if our ant dies kill ant process
 
@@ -196,8 +200,8 @@ handle_cast({update_map, dead_ant, [R, C, 0]}, S) ->
 handle_cast({update_map, hill, [R, C, O]}, S) ->
     Map = S#state.dynamic_map,
     Settings = S#state.settings,
-    NoCols = Settings#game_settings.cols,
-    ets:insert(Map, {R*NoCols + C, hill, O, S#state.active_turn}),
+    MaxCol = Settings#game_settings.cols,
+    ets:insert(Map, {R*MaxCol + C, hill, O, S#state.active_turn}),
     {noreply, S}
 ;
 handle_cast({set_variable, "turn", Val}, S) ->
@@ -218,7 +222,7 @@ handle_cast({set_variable, "loadtime", Val}, S) ->
     {noreply, NewS}
 ;
 handle_cast({set_variable, "turntime", Val}, S) ->
-    % take out 5ms to be sure that we don't timeout
+    % take out X ms to be sure that we don't timeout
     NewSettings = (S#state.settings)#game_settings{turntime = Val - 100},
     NewS = S#state{settings = NewSettings},
     {noreply, NewS}

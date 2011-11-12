@@ -12,20 +12,20 @@
 ]).
 
 -export([
-    start_link/2,
+    start_link/4,
     stop/1,
     get_decision/4
 ]).
 
 -record(state, {
-    last_col,
-    last_row,
+    max_col,
+    max_row,
     dynamic_map,
     static_map
 }).
 
-start_link(StaticMap, DynamicMap) ->
-    gen_server:start_link(?MODULE, [StaticMap, DynamicMap], [])
+start_link(StaticMap, DynamicMap, MaxRow, MaxCol) ->
+    gen_server:start_link(?MODULE, [StaticMap, DynamicMap, MaxRow, MaxCol], [])
 .
 
 stop(Pid) -> gen_server:cast(Pid, stop).
@@ -34,29 +34,33 @@ get_decision(Pid, From, {R, C}, Turn) ->
     gen_server:cast(Pid, {get_decision, From, {R, C}, Turn})
 .
 
-random_direction(R, C) ->
-    Nth = random:uniform(4),
-    case Nth of
-        1 ->
-            {R - 1, C, "N"}
-        ;
-        2 ->
-            {R + 1, C, "S"}
-        ;
-        3 ->
-            {R, C + 1, "E"}
-        ;
-        4 ->
-            {R, C - 1, "W"}
-    end
+random_direction(Map, MaxCol, R, C) ->
+    N = {(R - 1)*MaxCol+C, {R - 1, C}, "N"},
+    S = {(R + 1)*MaxCol+C, {R + 1, C}, "S"},
+    E = {R*MaxCol + C + 1, {R, C + 1}, "E"},
+    W = {R*MaxCol + C - 1, {R, C - 1}, "W"},
+    Dirs = [N,S,E,W],
+    ValidDirs = lists:filter(
+        fun({Pos, _RC, _D}) ->
+            not ets:member(Map, Pos)
+        end,
+        Dirs
+    ),
+    Nth = random:uniform(length(ValidDirs)),
+    lists:nth(Nth, ValidDirs)
 .
 
 %%% %%% %%%
 
-init([StaticMap, DynamicMap]) ->
+init([StaticMap, DynamicMap, MaxRow, MaxCol]) ->
     {R1,R2,R3} = now(),
     random:seed(R1,R2,R3),
-    State = #state{dynamic_map = DynamicMap, static_map = StaticMap},
+    State = #state{
+        dynamic_map = DynamicMap,
+        static_map = StaticMap,
+        max_row = MaxRow,
+        max_col = MaxCol
+    },
     {ok, State}
 .
 
@@ -65,7 +69,10 @@ handle_info(_, S) ->
 .
 
 handle_cast({get_decision, From, {R, C}, Turn}, S) ->
-    {DR, DC, D} = random_direction(R, C),
+    SMap = S#state.static_map,
+    MaxCols = S#state.max_col,
+    {NPos, {DR, DC}, D} = random_direction(SMap, MaxCols, R, C),
+    % TODO: send the Pos and NPos : {Pos, R, C}, {NPos, DR, DC}
     From ! {move, self(), {R, C}, {DR, DC}, D, Turn},
     {noreply, S}
 ;
