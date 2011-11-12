@@ -39,6 +39,7 @@
     ants_pool,
     ants_alive,
     active_turn,
+    movements,
     no_players,
     score
 }).
@@ -77,7 +78,8 @@ init(no_args) ->
         dynamic_map = DynamicMap,
         static_map = StaticMap,
         ants_pool = [],
-        ants_alive = []
+        ants_alive = [],
+        movements = []
     },
     {ok, State}
 .
@@ -98,27 +100,43 @@ handle_info(finish_turn, S) ->
     ||
         X <- AntsPool
     ],
-    {noreply, S#state{ants_pool = AntsAlive, ants_alive = [], active_turn = infinity}}
+    {noreply, S#state{
+        ants_pool = AntsAlive,
+        ants_alive = [],
+        movements = [],
+        active_turn = infinity
+    }}
 ;
 % move, From, Origin, Destiny, Direction, Turn
 handle_info({move, From, {R, C}, {DR, DC}, D, Turn}, S) ->
     ActiveTurn = S#state.active_turn,
     AntsAlive = S#state.ants_alive,
+    Movements = S#state.movements,
     NoCols = (S#state.settings)#game_settings.cols,
     Pos = R*NoCols + C,
     NPos = DR*NoCols + DC,
-    NAntsAlive = case Turn of
+    {NAntsAlive, NMovements} = case Turn of
         ActiveTurn ->
             error_logger:info_msg("World: move ~p ~p ~s", [R,C,D]),
-            % TODO: check movement generates colision
-            io:format("o ~p ~p ~s~n", [R, C, D]),
-            [{NPos, From, DR, DC} | proplists:delete(Pos, AntsAlive)]
+            % check if movement generates colision
+            case lists:member(NPos, Movements) of
+                true ->
+                    % Colision
+                    {AntsAlive, Movements}
+                ;
+                false ->
+                    io:format("o ~p ~p ~s~n", [R, C, D]),
+                    {
+                        [{NPos, From, DR, DC} | proplists:delete(Pos, AntsAlive)],
+                        [NPos | Movements]
+                    }
+            end
         ;
         _ ->
             error_logger:info_msg("World: move out of turn: AT=~s , MT=~s", [ActiveTurn, Turn]),
-            AntsAlive
+            {AntsAlive, Movements}
     end,
-    {noreply, S#state{ants_alive = NAntsAlive}}
+    {noreply, S#state{ants_alive = NAntsAlive, movements = NMovements}}
 ;
 handle_info(Msg, S) ->
     error_logger:debug_info("World: not implemented ~p~n", [Msg]),
@@ -201,7 +219,7 @@ handle_cast({set_variable, "loadtime", Val}, S) ->
 ;
 handle_cast({set_variable, "turntime", Val}, S) ->
     % take out 5ms to be sure that we don't timeout
-    NewSettings = (S#state.settings)#game_settings{turntime = Val - 20},
+    NewSettings = (S#state.settings)#game_settings{turntime = Val - 100},
     NewS = S#state{settings = NewSettings},
     {noreply, NewS}
 ;
