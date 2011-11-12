@@ -28,16 +28,27 @@ start_link(StaticMap, DynamicMap) ->
     gen_server:start_link(?MODULE, [StaticMap, DynamicMap], [])
 .
 
-stop(Pid) -> gen_server:call(Pid, stop).
+stop(Pid) -> gen_server:cast(Pid, stop).
 
 get_decision(Pid, From, {R, C}, Turn) ->
     gen_server:cast(Pid, {get_decision, From, {R, C}, Turn})
 .
 
-random_direction() ->
-    Dir = ["N", "S", "E", "W"],
+random_direction(R, C) ->
     Nth = random:uniform(4),
-    lists:nth(Nth, Dir)
+    case Nth of
+        1 ->
+            {R - 1, C, "N"}
+        ;
+        2 ->
+            {R + 1, C, "S"}
+        ;
+        3 ->
+            {R, C + 1, "E"}
+        ;
+        4 ->
+            {R, C - 1, "W"}
+    end
 .
 
 %%% %%% %%%
@@ -52,14 +63,17 @@ handle_info(_, S) ->
 .
 
 handle_cast({get_decision, From, {R, C}, Turn}, S) ->
-    D = random_direction(),
-    From ! {move, {R, C, D}, Turn},
+    {DR, DC, D} = random_direction(R, C),
+    From ! {move, self(), {R, C}, {DR, DC}, D, Turn},
     {noreply, S}
+;
+handle_cast(stop, S) ->
+    {stop, normal, S}
 .
 
-
-handle_call(stop, _, S) ->
-    {stop, normal, S}
+handle_call(Req, _, S) ->
+    error_logger:debug_info("Not implemented: call ~p", [Req]),
+    {reply, undefined, S}
 .
 
 terminate(_Reason, _S) ->

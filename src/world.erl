@@ -17,7 +17,6 @@
     set_variable/2,
     update_map/2,
     go/0,
-    finish_turn/0,
     dump_log/0
 ]).
 
@@ -37,7 +36,8 @@
     settings,
     dynamic_map,
     static_map,
-    ants,
+    ants_pool,
+    ants_alive,
     active_turn,
     no_players,
     score
@@ -76,17 +76,39 @@ init(no_args) ->
         settings = #game_settings{},
         dynamic_map = DynamicMap,
         static_map = StaticMap,
-        ants = []
+        ants_pool = [],
+        ants_alive = []
     },
     {ok, State}
 .
 
 handle_info(finish_turn, S) ->
+    % send the end turn message
+    % kill all ants still in the pool (not alive)
+    % set the ants_pool to ants_alive and reset ants_alive
     io:format("go~n"),
-    {noreply, S#state{active_turn = infinity}}
+    AntsPool = S#state.ants_pool,
+    AntsAlive = S#state.ants_alive,
+    F = fun({_Pos, AntPid, _R, _C}) ->
+        ant:stop(AntPid)
+    end,
+    [
+        F(X)
+    ||
+        X <- AntsPool
+    ],
+    {noreply, S#state{ants_pool = AntsAlive, ants_alive = [], active_turn = infinity}}
 ;
-handle_info({move, {R, C, D}, Turn}, S) ->
-    io:format("o ~p ~p ~s~n", [R, C, D]),
+% move, From, Origin, Destiny, Direction, Turn
+handle_info({move, From, {R, C}, {DR, DC}, D, Turn}, S) ->
+    ActiveTurn = S#state.active_turn,
+    case Turn of
+        ActiveTurn ->
+            % TODO: check movement generates colision
+            io:format("o ~p ~p ~s~n", [R, C, D])
+        ;
+        _ -> nop
+    end,
     {noreply, S}
 ;
 handle_info(Msg, S) ->
@@ -109,18 +131,21 @@ handle_cast({update_map, water, [R, C]}, S) ->
     {noreply, S}
 ;
 handle_cast({update_map, ant, [R, C, 0]}, S) ->
-    AntsList = S#state.ants,
+    % if the ant is in our pool move it to the alive group
+    % else spawn a new ant
+    AntsPool = S#state.ants_pool,
+    AntsAlive = S#state.ants_alive,
     NoCols = (S#state.settings)#game_settings.cols,
     Pos = R*NoCols + C,
-    NAntsList = case proplists:is_defined(Pos, S#state.ants) of
+    {NAntsPool, NAntsAlive} = case proplists:is_defined(Pos, AntsPool) of
         false ->
             {ok, AntPid} = ant:start_link(S#state.static_map, S#state.dynamic_map),
-            [{Pos, AntPid, R, C} | AntsList]
+            {AntsPool, [{Pos, AntPid, R, C} | AntsAlive]}
         ;
         true ->
-            AntsList
+            {proplists:delete(Pos, AntsPool), [proplists:property(Pos, AntsPool) | AntsAlive]}
     end,
-    NState = S#state{ ants = NAntsList },
+    NState = S#state{ants_pool = NAntsPool, ants_alive = NAntsAlive},
     DMap = S#state.dynamic_map,
     ets:insert(DMap, {Pos, ant, 0, S#state.active_turn}),
     {noreply, NState}
@@ -214,13 +239,13 @@ handle_call(go, _, S) ->
     DMap = S#state.dynamic_map,
     ATurn = S#state.active_turn,
     
-    Fun = fun(AntPid, Row, Col) ->
+    F = fun(AntPid, Row, Col) ->
         ant:get_decision(AntPid, self(), {Row, Col}, ATurn)
     end,
     [
-        Fun(APid, R, C)
+        F(APid, R, C)
     ||
-        {Pos, APid, R, C} <- S#state.ants
+        {Pos, APid, R, C} <- S#state.ants_alive
     ],
     {reply, ok, S}
 ;
