@@ -101,29 +101,21 @@ finish_turn(S) ->
 .
 
 move_ant({move, From, {Pos, R, C}, {NPos, DR, DC}, D, Turn}, S) ->
-    ActiveTurn = S#state.active_turn,
     AntsAlive = S#state.ants_alive,
     Movements = S#state.movements,
-    {NAntsAlive, NMovements} = case Turn of
-        ActiveTurn ->
-            % check if movement generates colision
-            case lists:member(NPos, Movements) of
-                true ->
-                    ant:solve_colision(From, self(), {Pos, R, C}, Movements, Turn),
-                    {AntsAlive, Movements}
-                ;
-                false ->
-                    io:format("o ~p ~p ~s~n", [R, C, D]),
-                    error_logger:info_msg("World: move from ~p ~p ~s", [R,C,D]),
-                    {
-                        [{NPos, From, DR, DC} | proplists:delete(Pos, AntsAlive)],
-                        [NPos | Movements]
-                    }
-            end
-        ;
-        _ ->
-            error_logger:info_msg("World: move out of turn: AT=~s , MT=~s", [ActiveTurn, Turn]),
+    % check if movement generates colision
+    {NAntsAlive, NMovements} = case lists:member(NPos, Movements) of
+        true ->
+            ant:solve_colision(From, self(), {Pos, R, C}, Movements, Turn),
             {AntsAlive, Movements}
+        ;
+        false ->
+            io:format("o ~p ~p ~s~n", [R, C, D]),
+            error_logger:info_msg("World: move from ~p ~p ~s", [R,C,D]),
+            {
+                [{NPos, From, DR, DC} | proplists:delete(Pos, AntsAlive)],
+                [NPos | Movements]
+            }
     end,
     S#state{ants_alive = NAntsAlive, movements = NMovements}
 .
@@ -154,7 +146,7 @@ handle_info(timeout, S) ->
     {noreply, NState}
 ;
 % move, From, Origin, Destiny, Direction, Turn
-handle_info({move, _From, _Pos, _NPos, _D, _Turn} = Msg, S) ->
+handle_info({move, _From, _Pos, _NPos, _D, Turn} = Msg, #state{active_turn=Turn}=S) ->
     % Do we have time?
     NewState = case 
         timer:now_diff(now(), S#state.t0) >= (S#state.settings)#game_settings.turntime_micro of
@@ -165,6 +157,11 @@ handle_info({move, _From, _Pos, _NPos, _D, _Turn} = Msg, S) ->
             move_ant(Msg, S)
     end,
     {noreply, NewState}
+;
+handle_info({move, _From, _Pos, _NPos, _D, Turn}, S) ->
+    % Outdated move
+    error_logger:info_msg("World: move out of turn: AT=~s , MT=~s", [S#state.active_turn, Turn]),
+    {noreply, S}
 ;
 handle_info(Msg, S) ->
     error_logger:debug_info("World: not implemented ~p~n", [Msg]),
@@ -232,22 +229,20 @@ handle_cast({update_map, hill, [R, C, O]}, S) ->
     ets:insert(Map, {R*MaxCol + C, hill, O, S#state.active_turn}),
     {noreply, S}
 ;
+handle_cast({set_variable, "turn", 0}, S) ->
+    {noreply, S#state{active_turn=0}}
+;
 handle_cast({set_variable, "turn", Val}, S) ->
-    NewS = S#state{active_turn = Val},
-    {noreply, NewS}
+    T0 = now(),
+    TimeLimit = (S#state.settings)#game_settings.turntime,
+    {ok, Tref} = timer:send_after(TimeLimit, timeout),
+    {noreply, S#state{active_turn=Val, t0=T0, timer=Tref}}
 ;
 handle_cast({set_variable, "players", Val}, S) ->
-    NewS = S#state{no_players = Val},
-    {noreply, NewS}
+    {noreply,  S#state{no_players = Val}}
 ;
 handle_cast({set_variable, "score", Val}, S) ->
-    NewS = S#state{score = Val},
-    {noreply, NewS}
-;
-handle_cast({set_variable, "loadtime", Val}, S) ->
-    NewSettings = (S#state.settings)#game_settings{loadtime = Val},
-    NewS = S#state{settings = NewSettings},
-    {noreply, NewS}
+    {noreply, S#state{score = Val}}
 ;
 handle_cast({set_variable, "turntime", Val}, S) ->
     % take out X ms to be sure that we don't timeout and convert microseconds
@@ -255,57 +250,49 @@ handle_cast({set_variable, "turntime", Val}, S) ->
         turntime = Val - 100,
         turntime_micro = (Val - 100)*1000
     },
-    NewS = S#state{settings = NewSettings},
-    {noreply, NewS}
+    {noreply, S#state{settings = NewSettings}}
+;
+handle_cast({set_variable, "loadtime", Val}, S) ->
+    NewSettings = (S#state.settings)#game_settings{loadtime = Val},
+    {noreply, S#state{settings = NewSettings}}
 ;
 handle_cast({set_variable, "rows", Val}, S) ->
     NewSettings = (S#state.settings)#game_settings{rows = Val},
-    NewS = S#state{settings = NewSettings},
-    {noreply, NewS}
+    {noreply, S#state{settings = NewSettings}}
 ;
 handle_cast({set_variable, "cols", Val}, S) ->
     NewSettings = (S#state.settings)#game_settings{cols = Val},
-    NewS = S#state{settings = NewSettings},
-    {noreply, NewS}
+    {noreply, S#state{settings = NewSettings}}
 ;
 handle_cast({set_variable, "turns", Val}, S) ->
     NewSettings = (S#state.settings)#game_settings{turns = Val},
-    NewS = S#state{settings = NewSettings},
-    {noreply, NewS}
+    {noreply, S#state{settings = NewSettings}}
 ;
 handle_cast({set_variable, "viewradius2", Val}, S) ->
     NewSettings = (S#state.settings)#game_settings{viewradius2 = Val},
-    NewS = S#state{settings = NewSettings},
-    {noreply, NewS}
+    {noreply, S#state{settings = NewSettings}}
 ;
 handle_cast({set_variable, "attackradius2", Val}, S) ->
     NewSettings = (S#state.settings)#game_settings{attackradius2 = Val},
-    NewS = S#state{settings = NewSettings},
-    {noreply, NewS}
+    {noreply, S#state{settings = NewSettings}}
 ;
 handle_cast({set_variable, "spawnradius2", Val}, S) ->
     NewSettings = (S#state.settings)#game_settings{spawnradius2 = Val},
-    NewS = S#state{settings = NewSettings},
-    {noreply, NewS}
+    {noreply, S#state{settings = NewSettings}}
 ;
 handle_cast({set_variable, "player_seed", Val}, S) ->
     NewSettings = (S#state.settings)#game_settings{player_seed = Val},
-    NewS = S#state{settings = NewSettings},
-    {noreply, NewS}
+    {noreply, S#state{settings = NewSettings}}
 .
 
 handle_call(go, _, S) ->
-    T0 = now(),
-    TimeLimit = (S#state.settings)#game_settings.turntime,
-    {ok, Tref} = timer:send_after(TimeLimit, timeout),
-    
     lists:map(
         fun({_Pos, AntPid, Row, Col}) ->
             ant:get_decision(AntPid, self(), {Row, Col}, S#state.active_turn)
         end,
         S#state.ants_alive
     ),
-    {reply, ok, S#state{t0=T0, timer=Tref}}
+    {reply, ok, S}
 ;
 handle_call(dump_log, _, S) ->
     Dump = ets:tab2list(S#state.static_map),
