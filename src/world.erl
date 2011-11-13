@@ -23,6 +23,7 @@
 -record(game_settings, {
     loadtime,
     turntime,
+    turntime_micro, % same as turntime but in microseconds
     rows,
     cols,
     turns,
@@ -33,16 +34,22 @@
 }).
 
 -record(state, {
-    settings,
+    settings,      % game settings
     dynamic_map,
     static_map,
-    ants_pool,
-    ants_alive,
-    active_turn,
-    movements,
+    ants_pool,      % ants that played last turn
+    ants_alive,     % ants that are available for this turn
+    active_turn,    % current turn number
+    movements,      % positions our ants moved to this turn
+    t0,             % time when turn started
+    timer,          % timer that will send a message to triger the turn end
     no_players,
     score
 }).
+
+%%% %%% %%%
+%% API
+%%% %%% %%%
 
 start_link() ->
     gen_server:start_link({local, ?MODULE}, ?MODULE, no_args, [])
@@ -68,6 +75,62 @@ dump_log() ->
 .
 
 %%% %%% %%%
+%% Internal functions
+%%% %%% %%%
+
+finish_turn(S) ->
+    % send the end turn message
+    % kill all ants still in the pool (not alive)
+    % set the ants_pool to ants_alive and reset ants_alive
+    io:format("go~n"),
+    AntsPool = S#state.ants_pool,
+    AntsAlive = S#state.ants_alive,
+    error_logger:info_msg("World: Pool=~p Alive=~p", [AntsPool, AntsAlive]),
+    lists:map(
+        fun({_Pos, AntPid, _R, _C}) ->
+            ant:stop(AntPid)
+        end,
+        AntsPool
+    ),
+    S#state{
+        ants_pool = AntsAlive,
+        ants_alive = [],
+        movements = [],
+        active_turn = infinity
+    }
+.
+
+move_ant({move, From, {Pos, R, C}, {NPos, DR, DC}, D, Turn}, S) ->
+    ActiveTurn = S#state.active_turn,
+    AntsAlive = S#state.ants_alive,
+    Movements = S#state.movements,
+    {NAntsAlive, NMovements} = case Turn of
+        ActiveTurn ->
+            % check if movement generates colision
+            case lists:member(NPos, Movements) of
+                true ->
+                    ant:solve_colision(From, self(), {Pos, R, C}, Movements, Turn),
+                    {AntsAlive, Movements}
+                ;
+                false ->
+                    io:format("o ~p ~p ~s~n", [R, C, D]),
+                    error_logger:info_msg("World: move from ~p ~p ~s", [R,C,D]),
+                    {
+                        [{NPos, From, DR, DC} | proplists:delete(Pos, AntsAlive)],
+                        [NPos | Movements]
+                    }
+            end
+        ;
+        _ ->
+            error_logger:info_msg("World: move out of turn: AT=~s , MT=~s", [ActiveTurn, Turn]),
+            {AntsAlive, Movements}
+    end,
+    S#state{ants_alive = NAntsAlive, movements = NMovements}
+.
+
+%%% %%% %%%
+%% gen_server API
+%%% %%% %%%
 
 init(no_args) ->
     DynamicMap = ets:new(dynamic_map, []),
@@ -84,59 +147,24 @@ init(no_args) ->
     {ok, State}
 .
 
-handle_info(finish_turn, S) ->
-    % send the end turn message
-    % kill all ants still in the pool (not alive)
-    % set the ants_pool to ants_alive and reset ants_alive
-    io:format("go~n"),
-    AntsPool = S#state.ants_pool,
-    AntsAlive = S#state.ants_alive,
-    error_logger:info_msg("World: Pool=~p Alive=~p", [AntsPool, AntsAlive]),
-    F = fun({_Pos, AntPid, _R, _C}) ->
-        ant:stop(AntPid)
-    end,
-    [
-        F(X)
-    ||
-        X <- AntsPool
-    ],
-    {noreply, S#state{
-        ants_pool = AntsAlive,
-        ants_alive = [],
-        movements = [],
-        active_turn = infinity
-    }}
+handle_info(timeout, S) ->
+    NState = finish_turn(S),
+    error_logger:info_msg("World: end of turn after: ~p", [timer:now_diff(now(), S#state.t0)]),
+    timer:cancel(S#state.timer),
+    {noreply, NState}
 ;
 % move, From, Origin, Destiny, Direction, Turn
-handle_info({move, From, {R, C}, {DR, DC}, D, Turn}, S) ->
-    ActiveTurn = S#state.active_turn,
-    AntsAlive = S#state.ants_alive,
-    Movements = S#state.movements,
-    MaxCol = (S#state.settings)#game_settings.cols,
-    Pos = R*MaxCol + C,
-    NPos = DR*MaxCol + DC,
-    {NAntsAlive, NMovements} = case Turn of
-        ActiveTurn ->
-            error_logger:info_msg("World: move ~p ~p ~s", [R,C,D]),
-            % check if movement generates colision
-            case lists:member(NPos, Movements) of
-                true ->
-                    % Colision
-                    {AntsAlive, Movements}
-                ;
-                false ->
-                    io:format("o ~p ~p ~s~n", [R, C, D]),
-                    {
-                        [{NPos, From, DR, DC} | proplists:delete(Pos, AntsAlive)],
-                        [NPos | Movements]
-                    }
-            end
+handle_info({move, _From, _Pos, _NPos, _D, _Turn} = Msg, S) ->
+    % Do we have time?
+    NewState = case 
+        timer:now_diff(now(), S#state.t0) >= (S#state.settings)#game_settings.turntime_micro of
+        true ->
+            finish_turn(S)
         ;
-        _ ->
-            error_logger:info_msg("World: move out of turn: AT=~s , MT=~s", [ActiveTurn, Turn]),
-            {AntsAlive, Movements}
+        false ->
+            move_ant(Msg, S)
     end,
-    {noreply, S#state{ants_alive = NAntsAlive, movements = NMovements}}
+    {noreply, NewState}
 ;
 handle_info(Msg, S) ->
     error_logger:debug_info("World: not implemented ~p~n", [Msg]),
@@ -188,15 +216,15 @@ handle_cast({update_map, ant, [R, C, O]}, S) ->
     ets:insert(Map, {R*MaxCol + C, ant, O, S#state.active_turn}),
     {noreply, S}
 ;
-handle_cast({update_map, dead_ant, [R, C, 0]}, S) ->
-    Map = S#state.dynamic_map,
-    MaxCol = (S#state.settings)#game_settings.cols,
+%handle_cast({update_map, dead_ant, [R, C, 0]}, S) ->
+%    Map = S#state.dynamic_map,
+%    MaxCol = (S#state.settings)#game_settings.cols,
 %    ets:insert(Map, {R*MaxCol + C, ant, O, S#state.active_turn}),
 
     % TODO: if our ant dies kill ant process
 
-    {noreply, S}
-;
+%    {noreply, S}
+%;
 handle_cast({update_map, hill, [R, C, O]}, S) ->
     Map = S#state.dynamic_map,
     Settings = S#state.settings,
@@ -222,8 +250,11 @@ handle_cast({set_variable, "loadtime", Val}, S) ->
     {noreply, NewS}
 ;
 handle_cast({set_variable, "turntime", Val}, S) ->
-    % take out X ms to be sure that we don't timeout
-    NewSettings = (S#state.settings)#game_settings{turntime = Val - 100},
+    % take out X ms to be sure that we don't timeout and convert microseconds
+    NewSettings = (S#state.settings)#game_settings{
+        turntime = Val - 100,
+        turntime_micro = (Val - 100)*1000
+    },
     NewS = S#state{settings = NewSettings},
     {noreply, NewS}
 ;
@@ -264,21 +295,17 @@ handle_cast({set_variable, "player_seed", Val}, S) ->
 .
 
 handle_call(go, _, S) ->
-    Timeout = (S#state.settings)#game_settings.turntime,
-    {ok, Tref} = timer:send_after(Timeout, finish_turn),
-    SMap = S#state.static_map,
-    DMap = S#state.dynamic_map,
-    ATurn = S#state.active_turn,
+    T0 = now(),
+    TimeLimit = (S#state.settings)#game_settings.turntime,
+    {ok, Tref} = timer:send_after(TimeLimit, timeout),
     
-    F = fun(AntPid, Row, Col) ->
-        ant:get_decision(AntPid, self(), {Row, Col}, ATurn)
-    end,
-    [
-        F(APid, R, C)
-    ||
-        {Pos, APid, R, C} <- S#state.ants_alive
-    ],
-    {reply, ok, S}
+    lists:map(
+        fun({_Pos, AntPid, Row, Col}) ->
+            ant:get_decision(AntPid, self(), {Row, Col}, S#state.active_turn)
+        end,
+        S#state.ants_alive
+    ),
+    {reply, ok, S#state{t0=T0, timer=Tref}}
 ;
 handle_call(dump_log, _, S) ->
     Dump = ets:tab2list(S#state.static_map),

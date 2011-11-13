@@ -36,13 +36,13 @@ parse_line(Line) ->
         ["ready"] ->
             io:format("go~n")
         ;
-        ["d", R, C, "0"] -> % our dead ants - ignore others
-            world:update_map(dead_ant, [
-                list_to_integer(R),
-                list_to_integer(C),
-                0
-            ])
-        ;
+%        ["d", R, C, "0"] -> % our dead ants - ignore others
+%            world:update_map(dead_ant, [
+%                list_to_integer(R),
+%                list_to_integer(C),
+%                0
+%            ])
+%        ;
         ["a", R, C, O] -> % ants
             
             error_logger:info_msg("input: a ~s ~s ~s", [R,C,O]),

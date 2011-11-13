@@ -1,9 +1,6 @@
 TODO:
- - Ants should not write to output, instead they should send response to "world"
- - We need to update ants (pids -> pos) after each play
  - Ants need to move in direction to food or hives
  - simple path finding
- - every thing else ...
- - more ...
- - check the A* algo for pathfinding to food
+ - check the A* algo for pathfinding to food and hive
+ - speedup hacks: convert fun() to real functions; replace list comprehensions with lists:map
  - ...
