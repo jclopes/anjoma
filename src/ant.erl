@@ -15,7 +15,7 @@
     start_link/4,
     stop/1,
     get_decision/4,
-    solve_colision/5
+    solve_colision/5,
 ]).
 
 -record(state, {
@@ -48,16 +48,11 @@ solve_colision(Pid, From, {Pos, R, C}, Movements, Turn) ->
 %%% %%% %%%
 
 random_direction(Map, MaxCol, R, C) ->
-    N = {(R - 1)*MaxCol+C, {R - 1, C}, "N"},
-    S = {(R + 1)*MaxCol+C, {R + 1, C}, "S"},
-    E = {R*MaxCol + C + 1, {R, C + 1}, "E"},
-    W = {R*MaxCol + C - 1, {R, C - 1}, "W"},
-    Dirs = [N,S,E,W],
     ValidDirs = lists:filter(
         fun({Pos, _RC, _D}) ->
             not ets:member(Map, Pos)
         end,
-        Dirs
+        get_NSEW(MaxCol, {R, C})
     ),
     Nth = random:uniform(length(ValidDirs)),
     lists:nth(Nth, ValidDirs)
@@ -72,12 +67,94 @@ opposite_direction("S") -> "N";
 opposite_direction("E") -> "W";
 opposite_direction("W") -> "E".
 
-get_NSEW(R,C,MaxCol) ->
+% deprecated way of calculating adjacencies
+get_NSEW(MaxCol, {R, C}) ->
     N = {(R - 1)*MaxCol+C, {R - 1, C}, "N"},
     S = {(R + 1)*MaxCol+C, {R + 1, C}, "S"},
     E = {R*MaxCol + C + 1, {R, C + 1}, "E"},
     W = {R*MaxCol + C - 1, {R, C - 1}, "W"},
     [N,S,E,W]
+.
+
+% Return adjacent cells
+% if it would go over one side of the map then reenter in the oposite side
+get_adjacent_pos({MaxRow, MaxCol}, {R, C}) ->
+    [
+        case R - 1 < 1 of
+            true -> {MaxRow, C};
+            false -> {R - 1, C}
+        end,
+        case R + 1 > MaxRow of
+            true -> {1, C};
+            false -> {R + 1, C}
+        end,
+        case C + 1 > MaxCol of
+            true -> {R, 1};
+            false -> {R, C + 1}
+        end,
+        case C - 1 < 1 of
+            true -> {R, MaxCol};
+            false -> {R, C - 1}
+        end
+    ]
+.
+
+% This funtions implement a breadth-first search
+expand_cell(MapStatic, MapDynamic, MapSize, StartPos, MaxDepth) ->
+    expand_cell_acc(MapStatic, MapDynamic, MapSize, [StartPos], dict:store(StartPos, start_pos, dict:new()), MaxDepth)
+.
+
+expand_cell_acc(MapStatic, MapDynamic, MapSize, [H | StartPoss], PathDict, 0) ->
+    % return random path
+    {PathDict, H}
+.
+
+expand_cell_acc(MapStatic, MapDynamic, MapSize, StartPoss, PathDict, MaxDepth) ->
+    DictExpCells = expand_cell_list_acc(MapSize, StartPoss, PathDict),
+    ExpCells = dict:fetch_keys(DictExpCells),
+    % TODO: remove Cell that are water
+    WaterCells = lists:filter(
+        has_water(MapDynamic, X),
+        ExpCells
+    ),
+    % check if we found food
+    FoodCells = lists:filter(
+        has_food(MapDynamic, X),
+        ExpCells
+    ),
+    case FoodCells of
+        [] ->
+        %    expand next level
+            expand_cell_acc(MapStatic, MapDynamic, MapSize, ExpCells, DictExpCells, MaxDepth - 1)
+        ;
+        [FoodCell|_] ->
+        %    get the path from the origin
+            {DictExpCells, FoodCell}
+    end
+.
+
+% Given a MapSize and a list of starting positions,
+% get all the adjacent cells to those starting positions.
+% Returns a dict that contains elements in the format {Cell, StartingCell}.
+% This will be used to traceback the path to the origin.
+expand_cell_list_acc(_MapSize, [], CellSet) ->
+    CellSet
+;
+expand_cell_list_acc(MapSize, [OrigPos|Tail], Acc) ->
+    NAcc = lists:foldl(
+        fun(RC, CellSet) ->
+            case dict:is_key(RC, CellSet) of
+                false ->
+                    dict:store(RC, OrigPos, CellSet)
+                ;
+                true ->
+                    CellSet
+            end
+        end,
+        Acc,
+        get_adjacent_pos(MapSize, OrigPos)
+    ),
+    expand_cell_list_acc(MapSize, Tail, NAcc)
 .
 
 %%% %%% %%%
@@ -115,7 +192,7 @@ handle_cast({solve_colision, From, {Pos, R, C}, Movements, Turn}, S) ->
         fun({X,_,_}) ->
             lists:member(X, Movements) or ets:member(S#state.static_map, X)
         end,
-        get_NSEW(R, C, MaxCol)
+        get_NSEW(MaxCol, {R, C})
     ),
     case PossibleDirs of
         [] ->
