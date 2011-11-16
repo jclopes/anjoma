@@ -15,7 +15,7 @@
     start_link/4,
     stop/1,
     get_decision/4,
-    solve_colision/5,
+    solve_colision/5
 ]).
 
 -record(state, {
@@ -58,7 +58,7 @@ random_direction(Map, MaxCol, R, C) ->
     lists:nth(Nth, ValidDirs)
 .
 
-coord_to_pos(R, C, MaxCol) ->
+coord_to_pos({R, C}, MaxCol) ->
     R*MaxCol + C
 .
 
@@ -107,20 +107,30 @@ expand_cell(MapStatic, MapDynamic, MapSize, StartPos, MaxDepth) ->
 expand_cell_acc(MapStatic, MapDynamic, MapSize, [H | StartPoss], PathDict, 0) ->
     % return random path
     {PathDict, H}
-.
-
-expand_cell_acc(MapStatic, MapDynamic, MapSize, StartPoss, PathDict, MaxDepth) ->
+;
+expand_cell_acc(MapStatic, MapDynamic, {MaxRow, MaxCol}=MapSize, StartPoss, PathDict, MaxDepth) ->
     DictExpCells = expand_cell_list_acc(MapSize, StartPoss, PathDict),
     ExpCells = dict:fetch_keys(DictExpCells),
-    % TODO: remove Cell that are water
-    WaterCells = lists:filter(
-        has_water(MapDynamic, X),
+    % remove Cells that are water
+    NoWaterCells = lists:foldl(
+        fun(RC, Acc) ->
+            case ets:member(MapStatic, coord_to_pos(RC, MaxCol)) of
+                true -> dict:erase(RC, Acc);
+                false -> Acc
+            end
+        end,
         ExpCells
     ),
+    
     % check if we found food
     FoodCells = lists:filter(
-        has_food(MapDynamic, X),
-        ExpCells
+        fun(RC) ->
+            case ets:lookup(MapStatic, coord_to_pos(RC, MaxCol)) of
+                {Pos, food, _Turn} -> true;
+                _ -> false
+            end
+        end,
+        dict:fetch_keys(NoWaterCells)
     ),
     case FoodCells of
         [] ->
