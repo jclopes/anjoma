@@ -47,6 +47,19 @@ solve_colision(Pid, From, {Pos, R, C}, Movements, Turn) ->
 %% Internal functions
 %%% %%% %%%
 
+
+food_direction(MapStatic, MapDynamic, {MaxRow, MaxCol}=MapSize, StartPos) ->
+    % TODO: search depth should be smaller or equal to the viewing range
+    {PathDict, TargetCell} = expand_cell(MapStatic, MapDynamic, MapSize, StartPos, 5),
+
+    % TODO: store the path in state to avoid recalculate
+    case trace_path(PathDict, TargetCell) of
+        [A, B | Tail] ->
+            {RC, Dir} = get_move(A, B),
+            {coord_to_pos(RC, MaxCol), RC, Dir}
+    end
+.
+
 random_direction(Map, MaxCol, R, C) ->
     ValidDirs = lists:filter(
         fun({Pos, _RC, _D}) ->
@@ -56,6 +69,25 @@ random_direction(Map, MaxCol, R, C) ->
     ),
     Nth = random:uniform(length(ValidDirs)),
     lists:nth(Nth, ValidDirs)
+.
+
+get_move({R0, C0}, {R0, C1}) ->
+    Dir = case C0 - C1 of
+        1 -> "W";
+        -1 -> "E";
+        X when X < -1 -> "W";
+        X when X > 1 -> "E"
+    end,
+    {{R0, C1}, Dir}
+;
+get_move({R0, C0}, {R1, C0}) ->
+    Dir = case R0 - R1 of
+        1 -> "N";
+        -1 -> "S";
+        X when X < -1 -> "N";
+        X when X > 1 -> "S"
+    end,
+    {{R1, C0}, Dir}
 .
 
 coord_to_pos({R, C}, MaxCol) ->
@@ -104,11 +136,13 @@ expand_cell(MapStatic, MapDynamic, MapSize, StartPos, MaxDepth) ->
     expand_cell_acc(MapStatic, MapDynamic, MapSize, [StartPos], dict:store(StartPos, start_pos, dict:new()), MaxDepth)
 .
 
-expand_cell_acc(MapStatic, MapDynamic, MapSize, [H | StartPoss], PathDict, 0) ->
-    % return random path
+expand_cell_acc(_, _, _, [H | _StartPoss], PathDict, 0) ->
+    % TODO: get a better stratagy
+    % if we reach the maximum depth, return last cell added as target.
     {PathDict, H}
 ;
 expand_cell_acc(MapStatic, MapDynamic, {MaxRow, MaxCol}=MapSize, StartPoss, PathDict, MaxDepth) ->
+    % TODO: Optimization, expand_cell_list_acc will give back already visited cells
     DictExpCells = expand_cell_list_acc(MapSize, StartPoss, PathDict),
     ExpCells = dict:fetch_keys(DictExpCells),
     % remove Cells that are water
@@ -121,7 +155,7 @@ expand_cell_acc(MapStatic, MapDynamic, {MaxRow, MaxCol}=MapSize, StartPoss, Path
         end,
         ExpCells
     ),
-    
+
     % check if we found food
     FoodCells = lists:filter(
         fun(RC) ->
@@ -167,6 +201,22 @@ expand_cell_list_acc(MapSize, [OrigPos|Tail], Acc) ->
     expand_cell_list_acc(MapSize, Tail, NAcc)
 .
 
+% Given a Path Dict and a target position
+% returns a list with a traceback to the start position
+trace_path(PathDict, TargetCell) ->
+    trace_path_acc(PathDict, TargetCell, [])
+.
+
+trace_path_acc(PathDict, TargetCell, Path) ->
+    case dict:fetch(TargetCell, PathDict) of
+        {Pos, start_pos} ->
+            [Pos | Path]
+        ;
+        {Pos, Prev} ->
+            trace_path_acc(PathDict, Prev, [Pos | Path])
+    end
+.
+
 %%% %%% %%%
 %% gen_server API
 %%% %%% %%%
@@ -189,9 +239,11 @@ handle_info(_, S) ->
 
 handle_cast({get_decision, From, {R, C}, Turn}, S) ->
     SMap = S#state.static_map,
+    DMap = S#state.dynamic_map,
+    MaxRow = S#state.max_row,
     MaxCol = S#state.max_col,
     Pos = R*MaxCol + C,
-    {NPos, {DR, DC}, D} = random_direction(SMap, MaxCol, R, C),
+    {NPos, {DR, DC}, D} = food_direction(SMap, DMap, {MaxRow, MaxCol}, {R, C}),
     From ! {move, self(), {Pos, R, C}, {NPos, DR, DC}, D, Turn},
     {noreply, S}
 ;
