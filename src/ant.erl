@@ -55,6 +55,7 @@ food_direction(MapStatic, MapDynamic, {MaxRow, MaxCol}=MapSize, StartPos) ->
     % TODO: store the path in state to avoid recalculate
     case trace_path(PathDict, TargetCell) of
         [A, B | Tail] ->
+            error_logger:info_msg("~p -> ~p : ~p", [A, B, Tail]),
             {RC, Dir} = get_move(A, B),
             {coord_to_pos(RC, MaxCol), RC, Dir}
     end
@@ -153,6 +154,7 @@ expand_cell_acc(MapStatic, MapDynamic, {MaxRow, MaxCol}=MapSize, StartPoss, Path
                 false -> Acc
             end
         end,
+        DictExpCells,
         ExpCells
     ),
 
@@ -169,11 +171,11 @@ expand_cell_acc(MapStatic, MapDynamic, {MaxRow, MaxCol}=MapSize, StartPoss, Path
     case FoodCells of
         [] ->
         %    expand next level
-            expand_cell_acc(MapStatic, MapDynamic, MapSize, ExpCells, DictExpCells, MaxDepth - 1)
+            expand_cell_acc(MapStatic, MapDynamic, MapSize, ExpCells, NoWaterCells, MaxDepth - 1)
         ;
         [FoodCell|_] ->
         %    get the path from the origin
-            {DictExpCells, FoodCell}
+            {NoWaterCells, FoodCell}
     end
 .
 
@@ -204,16 +206,16 @@ expand_cell_list_acc(MapSize, [OrigPos|Tail], Acc) ->
 % Given a Path Dict and a target position
 % returns a list with a traceback to the start position
 trace_path(PathDict, TargetCell) ->
-    trace_path_acc(PathDict, TargetCell, [])
+    trace_path_acc(PathDict, TargetCell, [TargetCell])
 .
 
 trace_path_acc(PathDict, TargetCell, Path) ->
     case dict:fetch(TargetCell, PathDict) of
-        {Pos, start_pos} ->
-            [Pos | Path]
+        start_pos ->
+            Path
         ;
-        {Pos, Prev} ->
-            trace_path_acc(PathDict, Prev, [Pos | Path])
+        Prev ->
+            trace_path_acc(PathDict, Prev, [Prev | Path])
     end
 .
 

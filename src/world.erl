@@ -58,7 +58,7 @@ start_link() ->
 stop() -> gen_server:call(?MODULE, stop).
 
 set_variable(Key, Val) ->
-    error_logger:info_msg("~p = ~p~n", [Key, Val]),
+    error_logger:info_msg("~s ~p", [Key, Val]),
     gen_server:cast(?MODULE, {set_variable, Key, Val})
 .
 
@@ -164,7 +164,7 @@ handle_info({move, _From, _Pos, _NPos, _D, Turn}, S) ->
     {noreply, S}
 ;
 handle_info(Msg, S) ->
-    error_logger:debug_info("World: not implemented ~p~n", [Msg]),
+    error_logger:debug_info("World: not implemented ~p", [Msg]),
     {noreply, S}
 .
 
@@ -296,7 +296,7 @@ handle_call(go, _, S) ->
 ;
 handle_call(dump_log, _, S) ->
     Dump = ets:tab2list(S#state.static_map),
-    error_logger:info_msg("Static table:~n~p~n~n", [Dump]),
+    error_logger:info_msg("Static table:~n~p~n", [Dump]),
     {reply, ok, S}
 ;
 handle_call(stop, _, S) ->
