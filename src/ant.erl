@@ -50,13 +50,18 @@ solve_colision(Pid, From, {Pos, R, C}, Movements, Turn) ->
 
 food_direction(MapStatic, MapDynamic, {MaxRow, MaxCol}=MapSize, StartPos) ->
     % TODO: search depth should be smaller or equal to the viewing range
-    {PathDict, TargetCell} = expand_cell(MapStatic, MapDynamic, MapSize, StartPos, 5),
+    {PathDict, TargetCell} = expand_cell(MapStatic, MapDynamic, MapSize, StartPos, 7),
 
     % TODO: store the path in state to avoid recalculate
     case trace_path(PathDict, TargetCell) of
         [A, B | Tail] ->
-            error_logger:info_msg("~p -> ~p : ~p", [A, B, Tail]),
+            error_logger:info_msg("Ant: path to: ~p -> ~p : ~p", [A, B, Tail]),
             {RC, Dir} = get_move(A, B),
+            {coord_to_pos(RC, MaxCol), RC, Dir}
+        ;
+        [A] ->
+            error_logger:info_msg("Ant: path to: ~p", [A]),
+            {RC, Dir} = get_move(StartPos, A),
             {coord_to_pos(RC, MaxCol), RC, Dir}
     end
 .
@@ -137,9 +142,12 @@ expand_cell(MapStatic, MapDynamic, MapSize, StartPos, MaxDepth) ->
     expand_cell_acc(MapStatic, MapDynamic, MapSize, [StartPos], dict:store(StartPos, start_pos, dict:new()), MaxDepth)
 .
 
-expand_cell_acc(_, _, _, [H | _StartPoss], PathDict, 0) ->
+expand_cell_acc(_, _, _, StartPoss, PathDict, 0) ->
     % TODO: get a better stratagy
     % if we reach the maximum depth, return last cell added as target.
+    Nth = random:uniform(length(StartPoss) - 1),
+    H = lists:nth(Nth, StartPoss),
+    error_logger:info_msg("Target:~p PathDict:~p", [H, PathDict]),
     {PathDict, H}
 ;
 expand_cell_acc(MapStatic, MapDynamic, {MaxRow, MaxCol}=MapSize, StartPoss, PathDict, MaxDepth) ->
@@ -147,7 +155,7 @@ expand_cell_acc(MapStatic, MapDynamic, {MaxRow, MaxCol}=MapSize, StartPoss, Path
     DictExpCells = expand_cell_list_acc(MapSize, StartPoss, PathDict),
     ExpCells = dict:fetch_keys(DictExpCells),
     % remove Cells that are water
-    NoWaterCells = lists:foldl(
+    LandCellsDict = lists:foldl(
         fun(RC, Acc) ->
             case ets:member(MapStatic, coord_to_pos(RC, MaxCol)) of
                 true -> dict:erase(RC, Acc);
@@ -157,31 +165,34 @@ expand_cell_acc(MapStatic, MapDynamic, {MaxRow, MaxCol}=MapSize, StartPoss, Path
         DictExpCells,
         ExpCells
     ),
-
+    LandCellsList = dict:fetch_keys(LandCellsDict),
     % check if we found food
     FoodCells = lists:filter(
         fun(RC) ->
             case ets:lookup(MapStatic, coord_to_pos(RC, MaxCol)) of
-                {Pos, food, _Turn} -> true;
+                {Pos, food, _Turn} ->
+                    error_logger:info_msg("found food!"),
+                    true
+                ;
                 _ -> false
             end
         end,
-        dict:fetch_keys(NoWaterCells)
+        LandCellsList
     ),
     case FoodCells of
         [] ->
         %    expand next level
-            expand_cell_acc(MapStatic, MapDynamic, MapSize, ExpCells, NoWaterCells, MaxDepth - 1)
+            expand_cell_acc(MapStatic, MapDynamic, MapSize, LandCellsList, LandCellsDict, MaxDepth - 1)
         ;
         [FoodCell|_] ->
         %    get the path from the origin
-            {NoWaterCells, FoodCell}
+            {LandCellsDict, FoodCell}
     end
 .
 
 % Given a MapSize and a list of starting positions,
 % get all the adjacent cells to those starting positions.
-% Returns a dict that contains elements in the format {Cell, StartingCell}.
+% Returns a dict that maps Cell to OriginCell.
 % This will be used to traceback the path to the origin.
 expand_cell_list_acc(_MapSize, [], CellSet) ->
     CellSet
