@@ -32,6 +32,7 @@ start() ->
 parse_line(Line) ->
     Striped = string:strip(Line, right, $\n),
     Tokens = string:tokens(Striped, " "),
+    error_logger:info_msg("input: ~s", [Striped]),
     case Tokens of
         ["ready"] ->
             io:format("go~n")
@@ -44,9 +45,6 @@ parse_line(Line) ->
 %            ])
 %        ;
         ["a", R, C, O] -> % ants
-            
-            error_logger:info_msg("input: a ~s ~s ~s", [R,C,O]),
-            
             world:update_map(ant, [
                 list_to_integer(R),
                 list_to_integer(C),
