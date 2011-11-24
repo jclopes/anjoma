@@ -31,7 +31,7 @@
 %%% %%% %%%
 
 start_link(WaterMap, FoodMap, MapSize) ->
-    gen_server:start_link(?MODULE, [WaterMap, FoodMap, MapSize], [])
+    gen_server:start(?MODULE, [WaterMap, FoodMap, MapSize], [])
 .
 
 stop(Pid) -> gen_server:cast(Pid, stop).
@@ -51,31 +51,34 @@ solve_colision(Pid, From, {Pos, RC}, Movements, Turn) ->
 food_path(WaterMap, FoodMap, MapSize, StartPos) ->
     % TODO: search depth should be smaller or equal to the viewing range
     PathDict = pf:get_paths(WaterMap, MapSize, StartPos, 8),
-    FoodCells = lists:filter(
-        fun(RC) ->
-            ets:member(FoodMap, pf:coord_to_pos(MapSize, RC))
-        end,
-        dict:fetch_keys(PathDict)
-    ),
-    case FoodCells of
-        [] -> % no food go to most distant direction
-            {DistantRC, _} = dict:fold(
-                fun(K, {_, Depth}, {MK, MaxDepth}) ->
-                    case Depth > MaxDepth of
-                        true ->
-                            {K, Depth}
-                        ;
-                        false ->
-                            {MK, MaxDepth}
-                    end
+    case dict:size(PathDict) of
+        1 -> [StartPos, StartPos]; % There is no possible move. Stay put.
+        _ ->
+            FoodCells = lists:filter(
+                fun(RC) ->
+                    ets:member(FoodMap, pf:coord_to_pos(MapSize, RC))
                 end,
-                {undefined, -1},
-                PathDict
+                dict:fetch_keys(PathDict)
             ),
-            pf:extract_path(PathDict, DistantRC)
-        ;
-        [F|_] ->
-            pf:extract_path(PathDict, F)
+            case FoodCells of
+                [] -> % no food go to most distant direction
+                    {DistantRC, _} = dict:fold(
+                        fun(K, {_, Depth}, {MK, MaxDepth}) ->
+                            case Depth > MaxDepth of
+                                true ->
+                                    {K, Depth}
+                                ;
+                                false ->
+                                    {MK, MaxDepth}
+                            end
+                        end,
+                        {undefined, -1},
+                        PathDict
+                    ),
+                    pf:extract_path(PathDict, DistantRC)
+                ;
+                [F|_] -> pf:extract_path(PathDict, F)
+            end
     end
 .
 

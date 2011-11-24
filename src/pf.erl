@@ -10,23 +10,24 @@
 
 %% Get the direction to go from Origin to Destination
 %% if it reach the map limit then reenters in the oposite side.
+get_direction(RC, RC) ->
+    "" % direction to the same position is the empty string
+;
 get_direction({R0, C0}, {R0, C1}) ->
-    Dir = case C0 - C1 of
+    case C0 - C1 of
         1 -> "W";
         -1 -> "E";
         X when X < -1 -> "W";
         X when X > 1 -> "E"
-    end,
-    Dir
+    end
 ;
 get_direction({R0, C0}, {R1, C0}) ->
-    Dir = case R0 - R1 of
+    case R0 - R1 of
         1 -> "N";
         -1 -> "S";
         X when X < -1 -> "N";
         X when X > 1 -> "S"
-    end,
-    Dir
+    end
 .
 
 %% Convert from coords to position
@@ -43,11 +44,11 @@ get_adjacent({MaxRow, MaxCol}, {R, C}) ->
             false -> {R - 1, C}
         end,
         case R + 1 >= MaxRow of
-            true -> {1, C};
+            true -> {0, C};
             false -> {R + 1, C}
         end,
         case C + 1 >= MaxCol of
-            true -> {R, 1};
+            true -> {R, 0};
             false -> {R, C + 1}
         end,
         case C - 1 < 0 of
@@ -60,8 +61,7 @@ get_adjacent({MaxRow, MaxCol}, {R, C}) ->
 %% Returns a dict that maps all cells that are adjacent to SeedCells
 %% and are not in AvoidCells
 expand_cells(MapSize, SeedCells, AvoidCells) ->
-    Acc = dict:new(),
-    expand_cells_acc(MapSize, SeedCells, AvoidCells, Acc)
+    expand_cells_acc(MapSize, SeedCells, AvoidCells, dict:new())
 .
 
 expand_cells_acc(_, [], _, Acc) -> Acc;
