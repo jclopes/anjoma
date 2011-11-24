@@ -102,25 +102,48 @@ finish_turn(S) ->
     }
 .
 
-move_ant({move, From, {Pos, {R,C}=RC}, {NPos, NRC}, D, Turn}, S) ->
+move_ant({move, From, {Pos, RC}, {Pos, RC}, "", Turn}, S) ->
+    % stay in the same place
     AntsAlive = S#state.ants_alive,
     Movements = S#state.movements,
     % check if movement generates colision
-    {NAntsAlive, NMovements} = case lists:member(NPos, Movements) of
+    error_logger:info_msg("World: ~p ~p", [RC, Movements]),
+    {NAntsAlive, NMovements} = case lists:member(RC, Movements) of
         true ->
             ant:solve_colision(From, self(), {Pos, RC}, Movements, Turn),
             {AntsAlive, Movements}
         ;
         false ->
+            error_logger:info_msg("World: stay ~p", [RC]),
+            {
+                AntsAlive,
+                [RC | Movements]
+            }
+    end,
+    S#state{ants_alive = NAntsAlive, movements = NMovements}
+;
+move_ant({move, From, {Pos, {R,C}=RC}, {NPos, NRC}, D, Turn}, S) ->
+    AntsAlive = S#state.ants_alive,
+    Movements = S#state.movements,
+    % check if movement generates colision
+    error_logger:info_msg("World: move from ~p ~s", [RC, D]),
+    error_logger:info_msg("World: ~p ~p", [NRC, Movements]),
+    {NAntsAlive, NMovements} = case lists:member(NRC, Movements) of
+        true ->
+            error_logger:info_msg("World: collision ~p ~p", [NRC, Movements]),
+            ant:solve_colision(From, self(), {Pos, RC}, Movements, Turn),
+            {AntsAlive, Movements}
+        ;
+        false ->
             io:format("o ~p ~p ~s~n", [R, C, D]),
-            error_logger:info_msg("World: move from ~p ~s", [RC, D]),
             {
                 [{NPos, From, NRC} | proplists:delete(Pos, AntsAlive)],
-                [NPos | Movements]
+                [NRC | Movements]
             }
     end,
     S#state{ants_alive = NAntsAlive, movements = NMovements}
 .
+
 
 %%% %%% %%%
 %% gen_server API

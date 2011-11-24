@@ -50,7 +50,7 @@ solve_colision(Pid, From, {Pos, RC}, Movements, Turn) ->
 
 food_path(WaterMap, FoodMap, MapSize, StartPos) ->
     % TODO: search depth should be smaller or equal to the viewing range
-    PathDict = pf:get_paths(WaterMap, MapSize, StartPos, 7),
+    PathDict = pf:get_paths(WaterMap, MapSize, StartPos, 8),
     FoodCells = lists:filter(
         fun(RC) ->
             ets:member(FoodMap, pf:coord_to_pos(MapSize, RC))
@@ -108,14 +108,13 @@ handle_cast({get_decision, From, RC, Turn}, S) ->
     Pos = pf:coord_to_pos(MapSize, RC),
 
     {NPath, {NPos, NRC, D}} = case CurPath of
-        [RC0, RC1|PathTail] ->
-            Dir = pf:get_direction(RC0, RC1),
+        [RC, RC1|PathTail] ->
+            Dir = pf:get_direction(RC, RC1),
             {[RC1|PathTail], {pf:coord_to_pos(MapSize, RC1), RC1, Dir}}
         ;
         _ ->
-            [RC0, RC1|PathTail] = 
-            food_path(WMap, FMap, MapSize, RC),
-            Dir = pf:get_direction(RC0, RC1),
+            [RC, RC1|PathTail] = food_path(WMap, FMap, MapSize, RC),
+            Dir = pf:get_direction(RC, RC1),
             {[RC1|PathTail], {pf:coord_to_pos(MapSize, RC1), RC1, Dir}}
     end,
     From ! {move, self(), {Pos, RC}, {NPos, NRC}, D, Turn},
@@ -123,23 +122,30 @@ handle_cast({get_decision, From, RC, Turn}, S) ->
     {noreply, NState}
 ;
 handle_cast({solve_colision, From, {Pos, RC}, Movements, Turn}, S) ->
-    % Colision: stay in the same place or find a free one
+    % Colision: try stay in the same place or find a free one
     MapSize = {S#state.max_row, S#state.max_col},
-    PossibleDirs = lists:dropwhile(
-        fun(XY) ->
-            P = pf:coord_to_pos(MapSize, XY),
-            lists:member(P, Movements) or ets:member(S#state.water_map, P)
-        end,
-        pf:get_adjacent(MapSize, RC)
-    ),
-    case PossibleDirs of
-        [] ->
-            nop
+    case lists:member(RC, Movements) of
+        false ->
+            From ! {move, self(), {Pos, RC}, {Pos, RC}, "", Turn}
         ;
-        [NRC | _] ->
-            NPos = pf:coord_to_pos(MapSize, NRC),
-            D = pf:get_direction(RC, NRC),
-            From ! {move, self(), {Pos, RC}, {NPos, NRC}, D, Turn}
+        true ->
+            case
+                lists:dropwhile(
+                    fun(XY) ->
+                        P = pf:coord_to_pos(MapSize, XY),
+                        lists:member(XY, Movements) or ets:member(S#state.water_map, P)
+                    end,
+                    pf:get_adjacent(MapSize, RC)
+                )
+            of
+                [] ->
+                    nop
+                ;
+                [NRC | _] ->
+                    NPos = pf:coord_to_pos(MapSize, NRC),
+                    D = pf:get_direction(RC, NRC),
+                    From ! {move, self(), {Pos, RC}, {NPos, NRC}, D, Turn}
+            end
     end,
     {noreply, S}
 ;

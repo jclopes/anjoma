@@ -1,6 +1,15 @@
+Done:
+ - Map representation
+ - Path finding
+ - Basic collision detection
+
 TODO:
  - Ants need to move in direction to food or hives
- - simple path finding
  - check the A* algo for pathfinding to food and hive
+ 
  - speedup hacks: convert fun() to real functions; replace list comprehensions with lists:map
- - ...
+ - Oponent hills are seen as food
+ - Enemy ants are ignored
+ - Own ants are ignored
+ - after a detour try to get back to original path
+ - there are some problems calculating the positions on the map limits
