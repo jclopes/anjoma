@@ -38,20 +38,20 @@ coord_to_pos({_MaxRow, MaxCol}, {R, C}) ->
 %% if it reach the map limit then reenters in the oposite side.
 get_adjacent({MaxRow, MaxCol}, {R, C}) ->
     [
-        case R - 1 < 1 of
-            true -> {MaxRow, C};
+        case R - 1 < 0 of
+            true -> {MaxRow - 1, C};
             false -> {R - 1, C}
         end,
-        case R + 1 > MaxRow of
+        case R + 1 >= MaxRow of
             true -> {1, C};
             false -> {R + 1, C}
         end,
-        case C + 1 > MaxCol of
+        case C + 1 >= MaxCol of
             true -> {R, 1};
             false -> {R, C + 1}
         end,
-        case C - 1 < 1 of
-            true -> {R, MaxCol};
+        case C - 1 < 0 of
+            true -> {R, MaxCol - 1};
             false -> {R, C - 1}
         end
     ]
