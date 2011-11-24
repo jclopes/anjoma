@@ -90,7 +90,7 @@ expand_cells_acc(MapSize, [Seed|Seeds], AvoidCells, Acc) ->
 get_paths(Map, MapSize, Origin, MaxDepth) ->
     ValidPaths = dict:store(Origin, {origin,0}, dict:new()),
     BadCells = [Origin],
-    get_paths_acc(Map, MapSize, [Origin], 0, MaxDepth, ValidPaths, BadCells)
+    get_paths_acc(Map, MapSize, [Origin], 1, MaxDepth, ValidPaths, BadCells)
 .
 
 get_paths_acc(_M, _MS, _O, MaxDepth, MaxDepth, ValidPaths, _BC) ->
