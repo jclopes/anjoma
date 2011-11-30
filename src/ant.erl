@@ -26,6 +26,8 @@
     current_path
 }).
 
+-define(MAX_DEPTH, 10).
+
 %%% %%% %%%
 %% API
 %%% %%% %%%
@@ -50,7 +52,7 @@ solve_colision(Pid, From, {Pos, RC}, Movements, Turn) ->
 
 food_path(WaterMap, FoodMap, MapSize, StartPos) ->
     % TODO: search depth should be smaller or equal to the viewing range
-    PathDict = pf:get_paths(WaterMap, MapSize, StartPos, 8),
+    PathDict = pf:get_paths(WaterMap, MapSize, StartPos, ?MAX_DEPTH),
     case dict:size(PathDict) of
         1 -> [StartPos, StartPos]; % There is no possible move. Stay put.
         _ ->
@@ -62,24 +64,27 @@ food_path(WaterMap, FoodMap, MapSize, StartPos) ->
             ),
             case FoodCells of
                 [] -> % no food go to most distant direction
-                    {DistantRC, _} = dict:fold(
-                        fun(K, {_, Depth}, {MK, MaxDepth}) ->
-                            case Depth > MaxDepth of
-                                true ->
-                                    {K, Depth}
-                                ;
-                                false ->
-                                    {MK, MaxDepth}
+                    {ListDistantRC, _} = dict:fold(
+                        fun(K, {_, Depth}, {[MK|Tail], MaxDepth}=Acc) ->
+                            case Depth of
+                                D when D > MaxDepth -> {[K], D};
+                                D when D == MaxDepth -> {[K, MK|Tail], D};
+                                _ -> Acc
                             end
                         end,
-                        {undefined, -1},
+                        {[undefined], -1},
                         PathDict
                     ),
-                    pf:extract_path(PathDict, DistantRC)
+                    pf:extract_path(PathDict, random_element(ListDistantRC))
                 ;
                 [F|_] -> pf:extract_path(PathDict, F)
             end
     end
+.
+
+random_element(List) ->
+    Size = length(List),
+    lists:nth(random:uniform(Size), List)
 .
 
 %%% %%% %%%
