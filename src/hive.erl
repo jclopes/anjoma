@@ -1,4 +1,4 @@
--module(ant).
+-module(hive).
 
 -behaviour(gen_server).
 
@@ -21,20 +21,21 @@
 -record(state, {
     max_col,
     max_row,
-    food_map,
+    self_rc,
+    my_ants_map,
     water_map,
-    current_path
+    paths_dict
 }).
 
--define(MAX_DEPTH, 10).
+-define(MAX_DEPTH, 30).
 
 %%% %%% %%%
 %% API
 %%% %%% %%%
 
-start_link(WaterMap, FoodMap, MapSize) ->
+start_link(WaterMap, MyAntsMap, MapSize) ->
     % TODO: change from start_link to start
-    gen_server:start_link(?MODULE, [WaterMap, FoodMap, MapSize], [])
+    gen_server:start_link(?MODULE, [WaterMap, MyAntsMap, MapSize], [])
 .
 
 stop(Pid) -> gen_server:cast(Pid, stop).
@@ -51,15 +52,15 @@ solve_colision(Pid, From, {Pos, RC}, Movements, Turn) ->
 %% Internal functions
 %%% %%% %%%
 
-food_path(WaterMap, FoodMap, MapSize, StartPos) ->
-    % TODO: search depth should be smaller or equal to the viewing range???
+food_path(WaterMap, MyAntsMap, MapSize, StartPos) ->
+    % TODO: search depth should be smaller or equal to the viewing range
     PathDict = pf:get_paths(WaterMap, MapSize, StartPos, ?MAX_DEPTH),
     case dict:size(PathDict) of
         1 -> [StartPos, StartPos]; % There is no possible move. Stay put.
         _ ->
             FoodCells = lists:filter(
                 fun(RC) ->
-                    ets:member(FoodMap, pf:coord_to_pos(MapSize, RC))
+                    ets:member(MyAntsMap, pf:coord_to_pos(MapSize, RC))
                 end,
                 dict:fetch_keys(PathDict)
             ),
@@ -78,7 +79,6 @@ food_path(WaterMap, FoodMap, MapSize, StartPos) ->
                     ),
                     pf:extract_path(PathDict, random_element(ListDistantRC))
                 ;
-%                [F|_] -> pf:extract_path(PathDict, dict:fetch(F, PathDict))
                 [F|_] -> pf:extract_path(PathDict, F)
             end
     end
@@ -93,15 +93,16 @@ random_element(List) ->
 %% gen_server API
 %%% %%% %%%
 
-init([WaterMap, FoodMap, {MaxRow, MaxCol}]) ->
+init([WaterMap, MyAntsMap, {MaxRow, MaxCol}, RC]) ->
     {R1,R2,R3} = now(),
     random:seed(R1,R2,R3),
     State = #state{
-        food_map = FoodMap,
+        my_ants_map = MyAntsMap,
         water_map = WaterMap,
         max_row = MaxRow,
         max_col = MaxCol,
-        current_path = []
+        self_rc = RC,
+        paths_dict = undefined
     },
     {ok, State}
 .
@@ -110,53 +111,22 @@ handle_info(_, S) ->
     {noreply, S}
 .
 
-handle_cast({get_decision, From, RC, Turn}, S) ->
+% find paths from the hive until we find ants.
+% TODO: if water_map grows/changes we need to reset the paths_dict
+% TODO: send move orders to ants in reach
+handle_cast({get_decision, From, Turn}, S) ->
     WMap = S#state.water_map,
-    FMap = S#state.food_map,
+    AMap = S#state.my_ants_map,
     MapSize = {S#state.max_row, S#state.max_col},
-    CurPath = S#state.current_path,
-    Pos = pf:coord_to_pos(MapSize, RC),
+%    PathsDict = S#state.paths_dict,
 
-    {NPath, {NPos, NRC, D}} = case CurPath of
-        [RC, RC1|PathTail] ->
-            Dir = pf:get_direction(RC, RC1),
-            {[RC1|PathTail], {pf:coord_to_pos(MapSize, RC1), RC1, Dir}}
-        ;
-        _ ->
-            [RC, RC1|PathTail] = food_path(WMap, FMap, MapSize, RC),
-            Dir = pf:get_direction(RC, RC1),
-            {[RC1|PathTail], {pf:coord_to_pos(MapSize, RC1), RC1, Dir}}
-    end,
-    From ! {move, self(), {Pos, RC}, {NPos, NRC}, D, Turn},
-    NState = S#state{current_path = NPath},
-    {noreply, NState}
-;
-handle_cast({solve_colision, From, {Pos, RC}, Movements, Turn}, S) ->
-    % Colision: try stay in the same place or find a free one
-    MapSize = {S#state.max_row, S#state.max_col},
-    case lists:member(RC, Movements) of
-        false ->
-            From ! {move, self(), {Pos, RC}, {Pos, RC}, "", Turn}
-        ;
-        true ->
-            case
-                lists:dropwhile(
-                    fun(XY) ->
-                        P = pf:coord_to_pos(MapSize, XY),
-                        lists:member(XY, Movements) or ets:member(S#state.water_map, P)
-                    end,
-                    pf:get_adjacent(MapSize, RC)
-                )
-            of
-                [] ->
-                    nop
-                ;
-                [NRC | _] ->
-                    NPos = pf:coord_to_pos(MapSize, NRC),
-                    D = pf:get_direction(RC, NRC),
-                    From ! {move, self(), {Pos, RC}, {NPos, NRC}, D, Turn}
-            end
-    end,
+%    NPathsDict = case PathsDict of
+%        undefined ->
+%            find_ants(WMap, AMap, MapSize, S#state.self_rc),
+%        _ ->
+%            expand_paths(WMap, AMap, MapSize, PathsDict)
+%    end,
+%    NState = S#state{current_path = NPath},
     {noreply, S}
 ;
 handle_cast(stop, S) ->

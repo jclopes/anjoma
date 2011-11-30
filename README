@@ -12,4 +12,6 @@ TODO:
  - Enemy ants are ignored
  - Own ants are ignored
  - after a detour try to get back to original path
- - there are some problems calculating the positions on the map limits
+ - create ant follower (will try to always be next to some target ant)
+ - generate paths from hive to atract ants
+ - create patrol ants (will move back and forward between 2 points)
