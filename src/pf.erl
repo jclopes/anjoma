@@ -2,9 +2,11 @@
 
 -export([
     coord_to_pos/2,
+    cell_dist/2,
     get_adjacent/2,
     get_direction/2,
     get_paths/4,
+    get_path/4,
     extract_path/2
 ]).
 
@@ -33,6 +35,10 @@ get_direction({R0, C0}, {R1, C0}) ->
 %% Convert from coords to position
 coord_to_pos({_MaxRow, MaxCol}, {R, C}) ->
     R*MaxCol + C
+.
+
+cell_dist({R0, C0}, {R1, C1}) ->
+    abs(R1 - R0) + abs(C1 - C0)
 .
 
 %% Return all adjacent cells to the original
@@ -89,8 +95,8 @@ expand_cells_acc(MapSize, [Seed|Seeds], AvoidCells, Acc) ->
 %% returns -> dict()
 get_paths(Map, MapSize, Origin, MaxDepth) ->
     ValidPaths = dict:store(Origin, {origin,0}, dict:new()),
-    BadCells = [Origin],
-    get_paths_acc(Map, MapSize, [Origin], 1, MaxDepth, ValidPaths, BadCells)
+    AvoidCells = [Origin],
+    get_paths_acc(Map, MapSize, [Origin], 1, MaxDepth, ValidPaths, AvoidCells)
 .
 
 get_paths_acc(_M, _MS, _O, MaxDepth, MaxDepth, ValidPaths, _BC) ->
@@ -113,6 +119,35 @@ get_paths_acc(Map, MapSize, SeedCells, CurDepth, MaxDepth, ValidPaths, AvoidCell
     get_paths_acc(Map, MapSize, NSeedCells, CurDepth + 1, MaxDepth, NValidPaths, NAvoidCells)
 .
 
+% Get a path from RC0 to RC1
+% WARNING - no depth limit can be heavy or never finish
+get_path(Map, MapSize, RC0, RC1) ->
+    ValidPaths = dict:store(RC0, {origin,0}, dict:new()),
+    AvoidCells = [RC0],
+    PathDict = get_path_acc(Map, MapSize, [RC0], RC1, 1, ValidPaths, AvoidCells),
+    extract_path(PathDict, RC1)
+.
+get_path_acc(Map, MapSize, SeedCells, Destination, CurDepth, ValidPaths, AvoidCells) ->
+    NewPaths = expand_cells(MapSize, SeedCells, AvoidCells),
+    {NValidPaths, NSeedCells, NAvoidCells} = dict:fold(
+        fun(RC, V, {VP, NSC, AC})->
+            case ets:member(Map, coord_to_pos(MapSize, RC)) of
+                true -> {VP, NSC, [RC|AC]};
+                false ->
+                    {dict:store(RC, {V, CurDepth}, VP), [RC|NSC], [RC|AC]}
+            end
+        end,
+        {ValidPaths, [], AvoidCells},
+        NewPaths
+    ),
+    case dict:is_key(Destination, NValidPaths) of
+        true -> NValidPaths;
+        false ->
+            % keep searching
+            get_path_acc(Map, MapSize, NSeedCells, Destination, CurDepth + 1, NValidPaths, NAvoidCells)
+    end
+.
+
 % Given a Dict of Paths and a destination position
 % returns a list of cells from Origin to Destination
 extract_path(PathDict, Destination) ->
@@ -121,9 +156,7 @@ extract_path(PathDict, Destination) ->
 
 extract_path_acc(PathDict, Destination, Path) ->
     case dict:fetch(Destination, PathDict) of
-        {origin, 0} ->
-            Path
-        ;
+        {origin, 0} -> Path;
         {PrevCell, _Depth} ->
             extract_path_acc(PathDict, PrevCell, [PrevCell | Path])
     end

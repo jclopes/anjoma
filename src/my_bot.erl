@@ -12,7 +12,7 @@
 
 start() ->
     error_logger:tty(false),
-    error_logger:logfile({open, 'bot.log'}),
+%    error_logger:logfile({open, 'bot.log'}),
     world:start_link(),
     Line = io:get_line(standard_io, ""),
     case Line of
@@ -32,7 +32,7 @@ start() ->
 parse_line(Line) ->
     Striped = string:strip(Line, right, $\n),
     Tokens = string:tokens(Striped, " "),
-    error_logger:info_msg("input: ~s", [Striped]),
+%    error_logger:info_msg("input: ~s", [Striped]),
     case Tokens of
         ["ready"] ->
             io:format("go~n")

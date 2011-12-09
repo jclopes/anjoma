@@ -15,6 +15,7 @@
     start_link/3,
     stop/1,
     get_decision/4,
+    set_target/4,
     solve_colision/5
 ]).
 
@@ -23,10 +24,12 @@
     max_row,
     food_map,
     water_map,
-    current_path
+    current_path,
+    current_target,
+    current_target_pid
 }).
 
--define(MAX_DEPTH, 10).
+-define(MAX_DEPTH, 12).
 
 %%% %%% %%%
 %% API
@@ -45,6 +48,11 @@ get_decision(Pid, From, {R, C}, Turn) ->
 
 solve_colision(Pid, From, {Pos, RC}, Movements, Turn) ->
     gen_server:cast(Pid, {solve_colision, From, {Pos, RC}, Movements, Turn})
+.
+
+set_target(Pid, From, Target, Path) ->
+    error_logger:info_msg("T: ~p\tP:~p", [Target, Path]),
+    gen_server:cast(Pid, {set_target, From, Target, Path})
 .
 
 %%% %%% %%%
@@ -78,8 +86,9 @@ food_path(WaterMap, FoodMap, MapSize, StartPos) ->
                     ),
                     pf:extract_path(PathDict, random_element(ListDistantRC))
                 ;
-%                [F|_] -> pf:extract_path(PathDict, dict:fetch(F, PathDict))
-                [F|_] -> pf:extract_path(PathDict, F)
+                [FRC|_] ->
+                    {RC, D} = dict:fetch(FRC, PathDict),
+                    pf:extract_path(PathDict, RC)
             end
     end
 .
@@ -101,7 +110,9 @@ init([WaterMap, FoodMap, {MaxRow, MaxCol}]) ->
         water_map = WaterMap,
         max_row = MaxRow,
         max_col = MaxCol,
-        current_path = []
+        current_path = [],
+        current_target = undefined,
+        current_target_pid = undefined
     },
     {ok, State}
 .
@@ -115,21 +126,32 @@ handle_cast({get_decision, From, RC, Turn}, S) ->
     FMap = S#state.food_map,
     MapSize = {S#state.max_row, S#state.max_col},
     CurPath = S#state.current_path,
+    CurTarget = S#state.current_target,
+    CurTargetPid = S#state.current_target_pid,
     Pos = pf:coord_to_pos(MapSize, RC),
-
-    {NPath, {NPos, NRC, D}} = case CurPath of
+    
+    {NPath, {NPos, NRC, D}, NTarget, NTPid} = case CurPath of
         [RC, RC1|PathTail] ->
             Dir = pf:get_direction(RC, RC1),
-            {[RC1|PathTail], {pf:coord_to_pos(MapSize, RC1), RC1, Dir}}
+            {[RC1|PathTail], {pf:coord_to_pos(MapSize, RC1), RC1, Dir}, CurTarget, CurTargetPid}
+        ;
+        [RC] when CurTargetPid /= undefined ->
+            % we reached our target
+            CurTargetPid ! {achieved, self(), RC},
+            {[], {Pos, RC, ""}, undefined, undefined}
         ;
         _ ->
-            [RC, RC1|PathTail] = food_path(WMap, FMap, MapSize, RC),
-            Dir = pf:get_direction(RC, RC1),
-            {[RC1|PathTail], {pf:coord_to_pos(MapSize, RC1), RC1, Dir}}
+            case food_path(WMap, FMap, MapSize, RC) of
+                [RC, RC1|PathTail] ->
+                    Dir = pf:get_direction(RC, RC1),
+                    {[RC1|PathTail], {pf:coord_to_pos(MapSize, RC1), RC1, Dir}, CurTarget, CurTargetPid}
+                ;
+                [RC] ->
+                    {[], {Pos, RC, ""}, CurTarget, CurTargetPid}
+            end
     end,
     From ! {move, self(), {Pos, RC}, {NPos, NRC}, D, Turn},
-    NState = S#state{current_path = NPath},
-    {noreply, NState}
+    {noreply, S#state{current_path=NPath, current_target=NTarget, current_target_pid=NTPid}}
 ;
 handle_cast({solve_colision, From, {Pos, RC}, Movements, Turn}, S) ->
     % Colision: try stay in the same place or find a free one
@@ -158,6 +180,16 @@ handle_cast({solve_colision, From, {Pos, RC}, Movements, Turn}, S) ->
             end
     end,
     {noreply, S}
+;
+handle_cast({set_target, From, Target, [RC0 | Path]}, S) ->
+    % verify that we are not going for a target
+    % get the path to the first position
+    Map = S#state.water_map,
+    MapSize = {S#state.max_row, S#state.max_col},
+    [CurrentRC | _] = S#state.current_path,
+    P = lists:append(pf:get_path(Map, MapSize, CurrentRC, RC0),Path),
+    error_logger:info_msg("a: ~p\tset_target P: ~p", [self(),P]),
+    {noreply, S#state{current_path=P, current_target=Target, current_target_pid=From}}
 ;
 handle_cast(stop, S) ->
     {stop, normal, S}

@@ -36,9 +36,12 @@
 -record(state, {
     settings,      % game settings
     hive_map,
-    enemy_map,
+    my_hive_map,
+    ants_map,
+    my_ants_map,
     food_map,
     water_map,
+    hives_pool,     % TODO: store hive pids
     ants_pool,      % ants that played last turn
     ants_alive,     % ants that are available for this turn
     active_turn,    % current turn number
@@ -89,7 +92,7 @@ finish_turn(S) ->
     AntsAlive = S#state.ants_alive,
     ets:delete_all_objects(S#state.food_map),
     lists:map(
-        fun({_Pos, AntPid, _R_C}) ->
+        fun({_RC, AntPid}) ->
             ant:stop(AntPid)
         end,
         AntsPool
@@ -107,14 +110,14 @@ move_ant({move, From, {Pos, RC}, {Pos, RC}, "", Turn}, S) ->
     AntsAlive = S#state.ants_alive,
     Movements = S#state.movements,
     % check if movement generates colision
-    error_logger:info_msg("World: ~p ~p", [RC, Movements]),
+%    error_logger:info_msg("World: ~p ~p", [RC, Movements]),
     {NAntsAlive, NMovements} = case lists:member(RC, Movements) of
         true ->
             ant:solve_colision(From, self(), {Pos, RC}, Movements, Turn),
             {AntsAlive, Movements}
         ;
         false ->
-            error_logger:info_msg("World: stay ~p", [RC]),
+%            error_logger:info_msg("World: stay ~p", [RC]),
             {
                 AntsAlive,
                 [RC | Movements]
@@ -122,22 +125,22 @@ move_ant({move, From, {Pos, RC}, {Pos, RC}, "", Turn}, S) ->
     end,
     S#state{ants_alive = NAntsAlive, movements = NMovements}
 ;
-move_ant({move, From, {Pos, {R,C}=RC}, {NPos, NRC}, D, Turn}, S) ->
+move_ant({move, From, {Pos, {R,C}=RC}, {_NPos, NRC}, D, Turn}, S) ->
     AntsAlive = S#state.ants_alive,
     Movements = S#state.movements,
     % check if movement generates colision
-    error_logger:info_msg("World: move from ~p ~s", [RC, D]),
-    error_logger:info_msg("World: ~p ~p", [NRC, Movements]),
+%    error_logger:info_msg("World: move from ~p ~s", [RC, D]),
+%    error_logger:info_msg("World: ~p ~p", [NRC, Movements]),
     {NAntsAlive, NMovements} = case lists:member(NRC, Movements) of
         true ->
-            error_logger:info_msg("World: collision ~p ~p", [NRC, Movements]),
+%            error_logger:info_msg("World: collision ~p ~p", [NRC, Movements]),
             ant:solve_colision(From, self(), {Pos, RC}, Movements, Turn),
             {AntsAlive, Movements}
         ;
         false ->
             io:format("o ~p ~p ~s~n", [R, C, D]),
             {
-                [{NPos, From, NRC} | proplists:delete(Pos, AntsAlive)],
+                [{NRC, From} | proplists:delete(RC, AntsAlive)],
                 [NRC | Movements]
             }
     end,
@@ -151,17 +154,22 @@ move_ant({move, From, {Pos, {R,C}=RC}, {NPos, NRC}, D, Turn}, S) ->
 
 init(no_args) ->
     HiveMap = ets:new(hive_map, []),
-    EnemyMap = ets:new(enemy_map, []),
+    AntsMap = ets:new(ants_map, []),
+    MyHiveMap = ets:new(my_hive_map, []),
+    MyAntsMap = ets:new(my_ants_map, []),
     FoodMap = ets:new(food_map, []),
     WaterMap = ets:new(water_map, []),
     State = #state{
         settings = #game_settings{},
         hive_map = HiveMap,
-        enemy_map = EnemyMap,
+        ants_map = AntsMap,
+        my_hive_map = MyHiveMap,
+        my_ants_map = MyAntsMap,
         food_map = FoodMap,
         water_map = WaterMap,
         ants_pool = [],
         ants_alive = [],
+        hives_pool = [],
         movements = []
     },
     {ok, State}
@@ -188,7 +196,7 @@ handle_info({move, _From, _Pos, _NPos, _D, Turn} = Msg, #state{active_turn=Turn}
 ;
 handle_info({move, _From, _Pos, _NPos, _D, Turn}, S) ->
     % Outdated move
-    error_logger:info_msg("World: move out of turn: AT=~s , MT=~s", [S#state.active_turn, Turn]),
+%    error_logger:info_msg("World: move out of turn: AT=~p , MT=~p", [S#state.active_turn, Turn]),
     {noreply, S}
 ;
 handle_info(Msg, S) ->
@@ -217,26 +225,25 @@ handle_cast({update_map, ant, [R, C, 0]}, S) ->
     MaxCol = (S#state.settings)#game_settings.cols,
     MapSize = {MaxRow, MaxCol},
     Pos = pf:coord_to_pos(MapSize, {R, C}),
-    {NAntsPool, NAntsAlive} = case proplists:is_defined(Pos, AntsPool) of
+    {NAntsPool, NAntsAlive} = case proplists:is_defined({R,C}, AntsPool) of
         false ->
             {ok, AntPid} = ant:start_link(
                 S#state.water_map,
                 S#state.food_map,
                 MapSize
             ),
-            {AntsPool, [{Pos, AntPid, {R,C}} | AntsAlive]}
+            {AntsPool, [{{R,C}, AntPid} | AntsAlive]}
         ;
         true ->
-            {proplists:delete(Pos, AntsPool), [proplists:lookup(Pos, AntsPool) | AntsAlive]}
+            {proplists:delete({R,C}, AntsPool), [proplists:lookup({R,C}, AntsPool) | AntsAlive]}
     end,
     NState = S#state{ants_pool = NAntsPool, ants_alive = NAntsAlive},
-    % TODO: we are storing our ants in the enemy_map ??? WTF ???
-    EMap = S#state.enemy_map,
+    EMap = S#state.my_ants_map,
     ets:insert(EMap, {Pos}),
     {noreply, NState}
 ;
 handle_cast({update_map, ant, [R, C, O]}, S) ->
-    Map = S#state.enemy_map,
+    Map = S#state.ants_map,
     Settings = S#state.settings,
     MaxCol = Settings#game_settings.cols,
     ets:insert(Map, {R*MaxCol + C}),
@@ -252,18 +259,32 @@ handle_cast({update_map, ant, [R, C, O]}, S) ->
 %    {noreply, S}
 %;
 handle_cast({update_map, hill, [R, C, 0]}, S) ->
-    Map = S#state.hive_map,
+    Map = S#state.my_hive_map,
     Settings = S#state.settings,
     MaxCol = Settings#game_settings.cols,
     ets:insert(Map, {R*MaxCol + C}),
     {noreply, S}
 ;
 handle_cast({update_map, hill, [R, C, O]}, S) ->
-    Map = S#state.food_map,
+    WMap = S#state.water_map,
+    AMap = S#state.ants_map,
+    Map = S#state.hive_map,
     Settings = S#state.settings,
     MaxCol = Settings#game_settings.cols,
-    ets:insert(Map, {R*MaxCol + C}),
-    {noreply, S}
+    MaxRow = Settings#game_settings.rows,
+    HivesPool = S#state.hives_pool,
+    NHivesPool = case
+        ets:member(Map, {R, C})
+    of
+        true -> HivesPool;
+        false ->
+            error_logger:info_msg("found new hive ~p", [{R,C}]),
+            ets:insert(Map, {{R,C}}),
+            % start hill process
+            {ok, HivePid} = hive:start_link(WMap, AMap, {MaxRow, MaxCol}, {R,C}),
+            [HivePid | HivesPool]
+    end,
+    {noreply, S#state{hives_pool = NHivesPool}}
 ;
 handle_cast({set_variable, "turn", 0}, S) ->
     {noreply, S#state{active_turn=0}}
@@ -321,12 +342,22 @@ handle_cast({set_variable, "player_seed", Val}, S) ->
     {noreply, S#state{settings = NewSettings}}
 .
 
+handle_call(go, _, #state{active_turn=infinity}=S) ->
+    error_logger:info_msg("active_turn=infinity"),
+    {reply, ok, S}
+;
 handle_call(go, _, S) ->
     lists:map(
-        fun({_Pos, AntPid, RC}) ->
+        fun({RC, AntPid}) ->
             ant:get_decision(AntPid, self(), RC, S#state.active_turn)
         end,
         S#state.ants_alive
+    ),
+    lists:map(
+        fun(HivePid) ->
+            hive:get_decision(HivePid, self(), S#state.ants_alive, S#state.active_turn)
+        end,
+        S#state.hives_pool
     ),
     {reply, ok, S}
 ;
